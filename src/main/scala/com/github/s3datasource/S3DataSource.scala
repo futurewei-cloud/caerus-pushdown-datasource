@@ -38,7 +38,7 @@ class DefaultSource extends TableProvider
   with SessionConfigSupport with DataSourceRegister {
 
   private val logger = LoggerFactory.getLogger(getClass)
-  logger.info("\n\n\n\n\n\n\nS3 Data Source Created")
+  logger.trace("S3 Data Source Created")
   override def toString: String = s"S3DataSource()"
   override def supportsExternalMetadata(): Boolean = true
 

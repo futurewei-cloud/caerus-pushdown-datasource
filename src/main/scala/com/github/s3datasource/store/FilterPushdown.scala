@@ -19,6 +19,8 @@ package com.github.s3datasource.store
 
 import java.sql.{Date, Timestamp}
 
+import org.slf4j.LoggerFactory
+
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types._
 
@@ -26,6 +28,8 @@ import org.apache.spark.sql.types._
  * Helper methods for pushing filters into Select queries.
  */
 private[store] object FilterPushdown {
+
+  protected val logger = LoggerFactory.getLogger(getClass)
   /**
    * Build a SQL WHERE clause for the given filters. If a filter cannot be pushed down then no
    * condition will be added to the WHERE clause. If none of the filters can be pushed down then
@@ -121,7 +125,8 @@ private[store] object FilterPushdown {
     } else {
       retVal = s"select $columnList from $objectClause s $whereClause"
     }
-    printf("The SQL string is: %s\n", retVal);
+    logger.info(s"""SQL Query partition(${partition.index}:${partition.key}): 
+                 |${retVal}""".stripMargin);
     retVal
   }
 

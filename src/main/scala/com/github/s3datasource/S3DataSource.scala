@@ -21,13 +21,14 @@ import java.util
 import scala.collection.JavaConverters._
 import scala.collection.mutable.{ArrayBuffer, ListBuffer}
 
+import com.amazonaws.services.s3.model.S3ObjectSummary
+import com.github.s3datasource.store.{S3Partition, S3Store, S3StoreFactory}
 import org.slf4j.LoggerFactory
 
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.connector.catalog.{SessionConfigSupport, SupportsRead, Table, TableCapability, TableProvider}
 import org.apache.spark.sql.connector.expressions.Transform
 import org.apache.spark.sql.connector.read._
-import com.github.s3datasource.store.{S3Partition, S3Store, S3StoreFactory}
 import org.apache.spark.sql.sources.DataSourceRegister
 import org.apache.spark.sql.sources.Filter
 import org.apache.spark.sql.types.{StructType}
@@ -86,7 +87,7 @@ class S3ScanBuilder(schema: StructType,
 
   var scanFilters: Array[Filter] = new Array[Filter](0)
 
-  override def build(): Scan = new S3SimpleScan(schema, options, scanFilters)
+  override def build(): Scan = new S3Scan(schema, options, scanFilters)
 
   def pushedFilters: Array[Filter] = {
     logger.trace("pushedFilters" + scanFilters.toList)
@@ -108,9 +109,9 @@ class S3ScanBuilder(schema: StructType,
   }
 }
 
-class S3SimpleScan(schema: StructType,
-                   options: util.Map[String, String],
-                   filters: Array[Filter])
+class S3Scan(schema: StructType,
+             options: util.Map[String, String],
+             filters: Array[Filter])
       extends Scan with Batch {
 
   private val logger = LoggerFactory.getLogger(getClass)
@@ -119,30 +120,65 @@ class S3SimpleScan(schema: StructType,
 
   override def toBatch: Batch = this
 
+  private val maxPartSize: Long = (1024 * 1024 * 128)
   private var partitions: Array[InputPartition] = getPartitions()
 
-  private def getPartitions(): Array[InputPartition] = {
+  private def generateFilePartitions(objectSummary : S3ObjectSummary): Array[InputPartition] = {
     var store: S3Store = S3StoreFactory.getS3Store(schema, options, filters)
     var totalRows = store.getNumRows()
-    var numPartitions = options.getOrDefault("partitions", "4").toInt
+    var numPartitions: Int = 
+      if (options.containsKey("partitions")) {
+        options.get("partitions").toInt
+      } else {
+        (objectSummary.getSize() / maxPartSize +
+        (if ((objectSummary.getSize() % maxPartSize) == 0) 0 else 1)).toInt
+      }
+    if (numPartitions == 0) {
+      throw new ArithmeticException("numPartitions is 0")
+    }
     val partitionRows = totalRows / numPartitions
-    var a = new Array[InputPartition](0)
+    var partitionArray = new ArrayBuffer[InputPartition](0)
     logger.debug(s"""Num Partitions ${numPartitions}""")
-    for (i <- 0 to numPartitions - 1) {
+    for (i <- 0 to (numPartitions - 1)) {
       val rows = {
         if (i == numPartitions - 1) {
           totalRows - (i * partitionRows)
         }
         else partitionRows
       }
-      logger.debug(s"""Partition ${i} rowOffset ${i * partitionRows} numRows ${rows}""")
-      a :+= (new S3Partition(i,
-                             i * partitionRows,
-                             rows,
-                             numPartitions == 1)).asInstanceOf[InputPartition]
-      logger.info(a.mkString(" "))
+      val nextPart = new S3Partition(index = i,
+                                     rowOffset = i * partitionRows,
+                                     numRows = rows,
+                                     onlyPartition = (numPartitions == 1),
+                                     bucket = objectSummary.getBucketName(), 
+                                     key = objectSummary.getKey()).asInstanceOf[InputPartition]
+      partitionArray += nextPart
+      logger.info(nextPart.toString)
     }
-    a
+    partitionArray.toArray
+  }
+  private def createS3Partitions(objectSummaries : Array[S3ObjectSummary]): Array[InputPartition] = {
+    var a = new ArrayBuffer[InputPartition](0)
+    var i = 0
+    // In this case we generate one partition per file.
+    for (summary <- objectSummaries) {
+      a += new S3Partition(index = i, bucket = summary.getBucketName(), key = summary.getKey())
+      i += 1
+    }
+    logger.info(a.mkString(" "))
+    a.toArray
+  }
+  private def getPartitions(): Array[InputPartition] = {
+    var store: S3Store = S3StoreFactory.getS3Store(schema, options, filters)
+    val objectSummaries : Array[S3ObjectSummary] = store.getObjectSummaries()
+
+    // If there is only one file, we will partition it as needed automatically.
+    if (objectSummaries.length == 1) {
+      generateFilePartitions(objectSummaries(0))
+    } else {
+      // If there are multiple files we treat each one as a partition.
+      createS3Partitions(objectSummaries)
+    }
   }
 
   override def planInputPartitions(): Array[InputPartition] = {
@@ -198,7 +234,8 @@ class S3PartitionReader(schema: StructType,
     val row = rows(index)
     if (((index % 500000) == 0) ||
         (index == (length - 1))) {
-      logger.info(s"""partition: ${partition.index} get index: ${index}""")
+      logger.info(s"""get: partition: ${partition.index} ${partition.bucket} """ + 
+                  s"""${partition.key} index: ${index}""")
     }
     index = index + 1
     row

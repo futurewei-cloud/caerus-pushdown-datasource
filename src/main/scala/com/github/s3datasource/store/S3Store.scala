@@ -131,6 +131,36 @@ abstract class S3Store(schema: StructType,
     } while (result.isTruncated())
     rows
   }
+
+  def getObjectSummaries(): Array[S3ObjectSummary] = {
+    var req = new ListObjectsV2Request()
+    var result = new ListObjectsV2Result()
+    var s3URI = S3URI.toAmazonS3URI(path)
+    var params: Map[String, String] = Map("" -> "")
+    val csvFormat = CSVFormat.DEFAULT
+      .withHeader(schema.fields.map(x => x.name): _*)
+      .withRecordSeparator("\n")
+      .withDelimiter(params.getOrElse("delimiter", ",").charAt(0))
+      .withQuote(params.getOrElse("quote", "\"").charAt(0))
+      .withEscape(params.getOrElse(s"escape", "\\").charAt(0))
+      .withCommentMarker(params.getOrElse(s"comment", "#").charAt(0))
+
+    req.withBucketName(s3URI.getBucket())
+    req.withPrefix(s3URI.getKey().stripSuffix("*"))
+    req.withMaxKeys(1000)
+
+    var rows : Int = 0
+    var objectSummaries : ArrayBuffer[S3ObjectSummary] = new ArrayBuffer[S3ObjectSummary]()
+    do {
+      result = s3Client.listObjectsV2(req)
+      result.getObjectSummaries().asScala.foreach(objectSummary => {
+        objectSummaries += objectSummary
+        // logger.info("file is:" + objectSummary.getKey())
+      })
+      req.setContinuationToken(result.getNextContinuationToken())
+    } while (result.isTruncated())
+    objectSummaries.toArray
+  }
 }
 
 class S3StoreCSV(schema: StructType,
@@ -145,11 +175,10 @@ class S3StoreCSV(schema: StructType,
     var records = new ArrayBuffer[InternalRow](numRows)
     var req = new ListObjectsV2Request()
     var result = new ListObjectsV2Result()
-    var s3URI = S3URI.toAmazonS3URI(path)
     var params: Map[String, String] = Map("" -> "")
 
-    req.withBucketName(s3URI.getBucket())
-    req.withPrefix(s3URI.getKey().stripSuffix("*"))
+    req.withBucketName(partition.bucket)
+    req.withPrefix(partition.key)
     req.withMaxKeys(1000)
 
     val csvFormat = CSVFormat.DEFAULT
@@ -160,38 +189,31 @@ class S3StoreCSV(schema: StructType,
       .withEscape(params.getOrElse(s"escape", "\\").charAt(0))
       .withCommentMarker(params.getOrElse(s"comment", "#").charAt(0))
 
-    do {
-      result = s3Client.listObjectsV2(req)
-      result.getObjectSummaries().asScala.foreach(objectSummary => {
-        val in = s3Client.selectObjectContent(
-          Select.requestCSV(
-            objectSummary.getBucketName(),
-            objectSummary.getKey(),
-            params,
-            schema,
-            filters,
-            partition)
-        ).getPayload().getRecordsInputStream()
-        var parser = CSVParser.parse(in, java.nio.charset.Charset.forName("UTF-8"), csvFormat)
-        var index: Int = 0
-        try {
-          for (record <- parser.asScala) {
-            records += InternalRow.fromSeq(schema.fields.map(x => {
-              TypeCast.castTo(record.get(x.name), x.dataType, x.nullable)
-            }))
-            if ((index % 500000) == 0) {
-              logger.info("partition: " + partition.index + " index: " + index)
-            }
-            index += 1
-          }
-        } catch {
-          case NonFatal(e) => logger.error(s"Exception while parsing ", e)
+    val in = s3Client.selectObjectContent(
+      Select.requestCSV(partition.bucket,
+                        partition.key,
+                        params,
+                        schema,
+                        filters,
+                        partition)
+      ).getPayload().getRecordsInputStream()
+    var parser = CSVParser.parse(in, java.nio.charset.Charset.forName("UTF-8"), csvFormat)
+    var index: Int = 0
+    try {
+      for (record <- parser.asScala) {
+        records += InternalRow.fromSeq(schema.fields.map(x => {
+          TypeCast.castTo(record.get(x.name), x.dataType, x.nullable)
+        }))
+        if ((index % 500000) == 0) {
+          logger.info("partition: " + partition.index + " index: " + index)
         }
-        logger.info("getRows() partition: " + partition.index + " total rows:" + index)
-        parser.close()
-      })
-      req.setContinuationToken(result.getNextContinuationToken())
-    } while (result.isTruncated())
+        index += 1
+      }
+    } catch {
+      case NonFatal(e) => logger.error(s"Exception while parsing ", e)
+    }
+    logger.info("getRows() partition: " + partition.index + " total rows:" + index)
+    parser.close()
     records
   }
   logger.trace("S3StoreCSV: schema " + schema)

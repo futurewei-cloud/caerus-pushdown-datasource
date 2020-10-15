@@ -20,15 +20,15 @@ import org.apache.spark.Partition
 import org.apache.spark.sql.connector.read.InputPartition
 
 class S3Partition(var index: Int,
-                  var rowOffset: Long, var numRows: Long,
-                  var onlyPartition: Boolean)
+                  var rowOffset: Long = 0, var numRows: Long = 0,
+                  var onlyPartition: Boolean = true,
+                  var bucket: String = "",
+                  var key: String = "")
   extends Partition with InputPartition {
 
   override def toString() : String = {
-    s"""S3Partition index ${index}
-        rowOffset: ${rowOffset}
-        numRows: ${numRows}
-        onlyPartition: ${onlyPartition}"""
+    s"""S3Partition index ${index} rowOffset: ${rowOffset} numRows: ${numRows} """ +
+    s"""onlyPartition: ${onlyPartition} bucket: ${bucket} key: ${key}"""
   }
 
   override def preferredLocations(): Array[String] = {

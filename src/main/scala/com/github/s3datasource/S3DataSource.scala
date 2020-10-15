@@ -120,9 +120,9 @@ class S3Scan(schema: StructType,
 
   override def toBatch: Batch = this
 
-  private val maxPartSize: Long = (1024 * 1024 * 256)
+  private val maxPartSize: Long = (1024 * 1024 * 128)
   private var partitions: Array[InputPartition] = getPartitions()
-  
+
   private def generateFilePartitions(objectSummary : S3ObjectSummary): Array[InputPartition] = {
     var store: S3Store = S3StoreFactory.getS3Store(schema, options, filters)
     var totalRows = store.getNumRows()
@@ -137,7 +137,7 @@ class S3Scan(schema: StructType,
       throw new ArithmeticException("numPartitions is 0")
     }
     val partitionRows = totalRows / numPartitions
-    var a = new ArrayBuffer[InputPartition](0)
+    var partitionArray = new ArrayBuffer[InputPartition](0)
     logger.debug(s"""Num Partitions ${numPartitions}""")
     for (i <- 0 to (numPartitions - 1)) {
       val rows = {
@@ -146,16 +146,16 @@ class S3Scan(schema: StructType,
         }
         else partitionRows
       }
-      logger.trace(s"""Partition ${i} rowOffset ${i * partitionRows} numRows ${rows}""")
-      a += new S3Partition(index = i,
-                           rowOffset = i * partitionRows,
-                           numRows = rows,
-                           onlyPartition = numPartitions == 1,
-                           bucket = objectSummary.getBucketName(), 
-                           key = objectSummary.getKey()).asInstanceOf[InputPartition]
+      val nextPart = new S3Partition(index = i,
+                                     rowOffset = i * partitionRows,
+                                     numRows = rows,
+                                     onlyPartition = (numPartitions == 1),
+                                     bucket = objectSummary.getBucketName(), 
+                                     key = objectSummary.getKey()).asInstanceOf[InputPartition]
+      partitionArray += nextPart
+      logger.info(nextPart.toString)
     }
-    logger.info(a.mkString(" "))
-    a.toArray
+    partitionArray.toArray
   }
   private def createS3Partitions(objectSummaries : Array[S3ObjectSummary]): Array[InputPartition] = {
     var a = new ArrayBuffer[InputPartition](0)

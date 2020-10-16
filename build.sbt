@@ -2,13 +2,13 @@ name := "s3datasource"
 
 organization := ""
 version := "0.1.0"
-githubOwner := "rf972"
-githubRepository := "s3datasource"
+// githubOwner := "rf972"
+// githubRepository := "s3datasource"
 // githubTokenSource := TokenSource.Environment("GITHUB_TOKEN")
 
 // pushRemoteCacheConfiguration := pushRemoteCacheConfiguration.value.withOverwrite(true)
-publishConfiguration := publishConfiguration.value.withOverwrite(true)
-publishLocalConfiguration := publishLocalConfiguration.value.withOverwrite(true)
+// publishConfiguration := publishConfiguration.value.withOverwrite(true)
+// publishLocalConfiguration := publishLocalConfiguration.value.withOverwrite(true)
 scalaVersion := "2.12.10"
 
 val sparkVersion = "3.0.0"

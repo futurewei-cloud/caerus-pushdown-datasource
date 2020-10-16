@@ -127,7 +127,8 @@ class S3Scan(schema: StructType,
     var store: S3Store = S3StoreFactory.getS3Store(schema, options, filters)
     var totalRows = store.getNumRows()
     var numPartitions: Int = 
-      if (options.containsKey("partitions")) {
+      if (options.containsKey("partitions") &&
+          options.get("partitions").toInt != 0) {
         options.get("partitions").toInt
       } else {
         (objectSummary.getSize() / maxPartSize +

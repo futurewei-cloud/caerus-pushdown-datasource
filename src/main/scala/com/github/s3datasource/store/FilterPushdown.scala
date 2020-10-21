@@ -111,9 +111,10 @@ private[store] object FilterPushdown {
     }
   }
   def queryFromSchema(schema: StructType,
+                      prunedSchema: StructType,
                       filters: Array[Filter],
                       partition: S3Partition): String = {
-    var columnList = schema.fields.map(x => s"s." + s""""${x.name}"""").mkString(",")
+    var columnList = prunedSchema.fields.map(x => s"s." + s""""${x.name}"""").mkString(",")
     if (columnList.length == 0) {
       columnList = "*"
     }

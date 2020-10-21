@@ -76,13 +76,13 @@ object Select {
   }
 
   def requestParquet(bucket: String, key: String, params: Map[String, String],
-                     schema: StructType, filters: Array[Filter], partition: S3Partition):
+                     schema: StructType, prunedSchema: StructType, filters: Array[Filter], partition: S3Partition):
     SelectObjectContentRequest = {
 
     new SelectObjectContentRequest() { request =>
       request.setBucketName(bucket)
       request.setKey(key)
-      request.setExpression(FilterPushdown.queryFromSchema(schema, filters, partition))
+      request.setExpression(FilterPushdown.queryFromSchema(schema, prunedSchema, filters, partition))
       request.setExpressionType(ExpressionType.SQL)
 
       /* Temporarily removed hadoopConfiguration: Configuration as a parameter.
@@ -106,13 +106,13 @@ object Select {
   }
 
   def requestJSON(bucket: String, key: String, params: Map[String, String],
-                  schema: StructType, filters: Array[Filter], partition: S3Partition):
+                  schema: StructType, prunedSchema: StructType, filters: Array[Filter], partition: S3Partition):
     SelectObjectContentRequest = {
 
     new SelectObjectContentRequest() { request =>
       request.setBucketName(bucket)
       request.setKey(key)
-      request.setExpression(FilterPushdown.queryFromSchema(schema, filters, partition))
+      request.setExpression(FilterPushdown.queryFromSchema(schema, prunedSchema, filters, partition))
       request.setExpressionType(ExpressionType.SQL)
 
       /* Temporarily removed hadoopConfiguration: Configuration as a parameter.
@@ -139,12 +139,13 @@ object Select {
 
 /* Temporarily removed hadoopConfiguration: Configuration as a parameter. */
   def requestCSV(bucket: String, key: String, params: Map[String, String],
-                 schema: StructType, filters: Array[Filter], partition: S3Partition):
+                 schema: StructType, prunedSchema: StructType, filters: Array[Filter],
+                 partition: S3Partition):
                  SelectObjectContentRequest = {
     new SelectObjectContentRequest() { request =>
       request.setBucketName(bucket)
       request.setKey(key)
-      request.setExpression(FilterPushdown.queryFromSchema(schema, filters, partition))
+      request.setExpression(FilterPushdown.queryFromSchema(schema, prunedSchema, filters, partition))
       request.setExpressionType(ExpressionType.SQL)
 
       /* Disable for now until we get a hadoopConfig

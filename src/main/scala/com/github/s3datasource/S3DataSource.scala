@@ -80,14 +80,24 @@ class S3BatchTable(schema: StructType,
 
 class S3ScanBuilder(schema: StructType,
                     options: util.Map[String, String])
-  extends ScanBuilder with SupportsPushDownFilters {
+  extends ScanBuilder 
+    with SupportsPushDownFilters 
+    with SupportsPushDownRequiredColumns {
 
   private val logger = LoggerFactory.getLogger(getClass)
   logger.trace("Created")
 
   var scanFilters: Array[Filter] = new Array[Filter](0)
 
-  override def build(): Scan = new S3Scan(schema, options, scanFilters)
+  override def build(): Scan = new S3Scan(schema, options, scanFilters, prunedSchema)
+
+  private var prunedSchema: StructType = schema
+  def pruneColumns(requiredSchema: StructType): Unit = {
+    if (!options.containsKey("DisablePushDown")) {
+      prunedSchema = requiredSchema
+      logger.info("pruneColumns " + requiredSchema.toString)
+    }
+  }
 
   def pushedFilters: Array[Filter] = {
     logger.trace("pushedFilters" + scanFilters.toList)
@@ -101,22 +111,21 @@ class S3ScanBuilder(schema: StructType,
     } else {
       scanFilters = filters
       // return empty array to indicate we pushed down all the filters.
-      // new Array[Filter](0)
-
-      // For now return all filters to indicate they need to be re-evaluated.
-      scanFilters
+      Array[Filter]()
+      // If we return all filters it will indicate they need to be re-evaluated.
+      // scanFilters
     }
   }
 }
 
 class S3Scan(schema: StructType,
              options: util.Map[String, String],
-             filters: Array[Filter])
+             filters: Array[Filter], prunedSchema: StructType)
       extends Scan with Batch {
 
   private val logger = LoggerFactory.getLogger(getClass)
   logger.trace("Created")
-  override def readSchema(): StructType = schema
+  override def readSchema(): StructType = prunedSchema
 
   override def toBatch: Batch = this
 
@@ -124,7 +133,7 @@ class S3Scan(schema: StructType,
   private var partitions: Array[InputPartition] = getPartitions()
 
   private def generateFilePartitions(objectSummary : S3ObjectSummary): Array[InputPartition] = {
-    var store: S3Store = S3StoreFactory.getS3Store(schema, options, filters)
+    var store: S3Store = S3StoreFactory.getS3Store(schema, options, filters, prunedSchema)
     var totalRows = store.getNumRows()
     var numPartitions: Int = 
       if (options.containsKey("partitions") &&
@@ -170,7 +179,7 @@ class S3Scan(schema: StructType,
     a.toArray
   }
   private def getPartitions(): Array[InputPartition] = {
-    var store: S3Store = S3StoreFactory.getS3Store(schema, options, filters)
+    var store: S3Store = S3StoreFactory.getS3Store(schema, options, filters, prunedSchema)
     val objectSummaries : Array[S3ObjectSummary] = store.getObjectSummaries()
 
     // If there is only one file, we will partition it as needed automatically.
@@ -186,23 +195,26 @@ class S3Scan(schema: StructType,
     partitions
   }
   override def createReaderFactory(): PartitionReaderFactory =
-          new S3PartitionReaderFactory(schema, options, filters)
+          new S3PartitionReaderFactory(schema, options, filters, prunedSchema)
 }
 
 class S3PartitionReaderFactory(schema: StructType,
                                options: util.Map[String, String],
-                               filters: Array[Filter])
+                               filters: Array[Filter],
+                               prunedSchema: StructType)
   extends PartitionReaderFactory {
   private val logger = LoggerFactory.getLogger(getClass)
   logger.trace("Created")
   override def createReader(partition: InputPartition): PartitionReader[InternalRow] = {
-    new S3PartitionReader(schema, options, filters, partition.asInstanceOf[S3Partition])
+    new S3PartitionReader(schema, options, filters, 
+                          prunedSchema, partition.asInstanceOf[S3Partition])
   }
 }
 
 class S3PartitionReader(schema: StructType,
                         options: util.Map[String, String],
                         filters: Array[Filter],
+                        prunedSchema: StructType,
                         partition: S3Partition)
   extends PartitionReader[InternalRow] {
 
@@ -214,7 +226,7 @@ class S3PartitionReader(schema: StructType,
    * Then we return the data one row as a time as requested
    * Through the iterator interface.
    */
-  private var store: S3Store = S3StoreFactory.getS3Store(schema, options, filters)
+  private var store: S3Store = S3StoreFactory.getS3Store(schema, options, filters, prunedSchema)
   private var initted: Boolean = false
   private var rows: ArrayBuffer[InternalRow] = ArrayBuffer.empty[InternalRow]
   private var length: Int = 0

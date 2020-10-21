@@ -60,19 +60,21 @@ import org.apache.spark.unsafe.types.UTF8String
 object S3StoreFactory{
   def getS3Store(schema: StructType,
                  params: java.util.Map[String, String],
-                 filters: Array[Filter]): S3Store = {
+                 filters: Array[Filter],
+                 prunedSchema: StructType): S3Store = {
 
     var format = params.get("format")
     format.toLowerCase(Locale.ROOT) match {
-      case "csv" => new S3StoreCSV(schema, params, filters)
-      case "json" => new S3StoreJSON(schema, params, filters)
-      case "parquet" => new S3StoreParquet(schema, params, filters)
+      case "csv" => new S3StoreCSV(schema, params, filters, prunedSchema)
+      case "json" => new S3StoreJSON(schema, params, filters, prunedSchema)
+      case "parquet" => new S3StoreParquet(schema, params, filters, prunedSchema)
     }
   }
 }
 abstract class S3Store(schema: StructType,
                        params: java.util.Map[String, String],
-                       filters: Array[Filter]) {
+                       filters: Array[Filter],
+                       prunedSchema: StructType) {
 
   protected var path = params.get("path")
   protected val logger = LoggerFactory.getLogger(getClass)
@@ -165,8 +167,9 @@ abstract class S3Store(schema: StructType,
 
 class S3StoreCSV(schema: StructType,
                  params: java.util.Map[String, String],
-                 filters: Array[Filter])
-                 extends S3Store(schema, params, filters) {
+                 filters: Array[Filter],
+                 prunedSchema: StructType)
+                 extends S3Store(schema, params, filters, prunedSchema) {
 
   override def toString() : String = "S3StoreCSV" + params + filters.mkString(", ")
 
@@ -182,7 +185,7 @@ class S3StoreCSV(schema: StructType,
     req.withMaxKeys(1000)
 
     val csvFormat = CSVFormat.DEFAULT
-      .withHeader(schema.fields.map(x => x.name): _*)
+      .withHeader(prunedSchema.fields.map(x => x.name): _*)
       .withRecordSeparator("\n")
       .withDelimiter(params.getOrElse("delimiter", ",").charAt(0))
       .withQuote(params.getOrElse("quote", "\"").charAt(0))
@@ -194,6 +197,7 @@ class S3StoreCSV(schema: StructType,
                         partition.key,
                         params,
                         schema,
+                        prunedSchema,
                         filters,
                         partition)
       ).getPayload().getRecordsInputStream()
@@ -201,7 +205,7 @@ class S3StoreCSV(schema: StructType,
     var index: Int = 0
     try {
       for (record <- parser.asScala) {
-        records += InternalRow.fromSeq(schema.fields.map(x => {
+        records += InternalRow.fromSeq(prunedSchema.fields.map(x => {
           TypeCast.castTo(record.get(x.name), x.dataType, x.nullable)
         }))
         if ((index % 500000) == 0) {
@@ -226,7 +230,8 @@ class S3StoreCSV(schema: StructType,
 
 class S3StoreJSON(schema: StructType,
                   params: java.util.Map[String, String],
-                  filters: Array[Filter]) extends S3Store(schema, params, filters) {
+                  filters: Array[Filter],
+                  prunedSchema: StructType) extends S3Store(schema, params, filters, prunedSchema) {
 
   override def toString() : String = "S3StoreJSON" + params + filters.mkString(", ")
 
@@ -251,6 +256,7 @@ class S3StoreJSON(schema: StructType,
               objectSummary.getKey(),
               params,
               schema,
+              prunedSchema,
               filters,
               partition)
           ).getPayload().getRecordsInputStream()))
@@ -283,7 +289,8 @@ class S3StoreJSON(schema: StructType,
 
 class S3StoreParquet(schema: StructType,
                      params: java.util.Map[String, String],
-                     filters: Array[Filter]) extends S3Store(schema, params, filters) {
+                     filters: Array[Filter],
+                     prunedSchema: StructType) extends S3Store(schema, params, filters, prunedSchema) {
 
   override def toString() : String = "S3StoreParquet" + params + filters.mkString(", ")
 
@@ -308,6 +315,7 @@ class S3StoreParquet(schema: StructType,
               objectSummary.getKey(),
               params,
               schema,
+              prunedSchema,
               filters,
               partition)
           ).getPayload().getRecordsInputStream()))

@@ -16,13 +16,15 @@ val sparkVersion = "3.0.0"
 libraryDependencies ++= Seq(
   "com.amazonaws" % "aws-java-sdk" % "1.11.434" exclude("com.fasterxml.jackson.core", "jackson-databind"),
   "org.apache.commons" % "commons-csv" % "1.8",
+  "org.apache.httpcomponents" % "httpcore" % "4.4.11",
   "org.slf4j" % "slf4j-api" % "1.7.30" % "provided",
-  "org.mockito" % "mockito-core" % "2.0.31-beta"
+  "org.mockito" % "mockito-core" % "2.0.31-beta",
+  "org.scalatest" % "scalatest_2.12" % "3.2.2",
 )
 
 libraryDependencies ++= Seq(
- "org.apache.spark" %% "spark-core" % sparkVersion,
- "org.apache.spark" %% "spark-sql" % sparkVersion,
+  "org.apache.spark" %% "spark-core" % sparkVersion,
+  "org.apache.spark" %% "spark-sql" % sparkVersion,
   "org.scala-lang" % "scala-library" % scalaVersion.value % "compile",
 )
 // githubOwner := "rf972"

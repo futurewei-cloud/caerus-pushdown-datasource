@@ -22,7 +22,7 @@ import scala.collection.JavaConverters._
 import scala.collection.mutable.{ArrayBuffer, ListBuffer}
 
 import com.amazonaws.services.s3.model.S3ObjectSummary
-import com.github.s3datasource.store.{S3Partition, S3Store, S3StoreFactory}
+import com.github.s3datasource.store.{S3Partition, S3Store, S3StoreFactory, Pushdown}
 import org.slf4j.LoggerFactory
 
 import org.apache.spark.sql.catalyst.InternalRow
@@ -30,8 +30,9 @@ import org.apache.spark.sql.connector.catalog.{SessionConfigSupport, SupportsRea
 import org.apache.spark.sql.connector.expressions.Transform
 import org.apache.spark.sql.connector.read._
 import org.apache.spark.sql.sources.DataSourceRegister
-import org.apache.spark.sql.sources.Filter
-import org.apache.spark.sql.types.{StructType}
+import org.apache.spark.sql.sources.Aggregation
+import org.apache.spark.sql.sources._
+import org.apache.spark.sql.types._
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 import org.apache.spark.unsafe.types.UTF8String
 
@@ -78,49 +79,64 @@ class S3BatchTable(schema: StructType,
       new S3ScanBuilder(schema, options)
 }
 
+
 class S3ScanBuilder(schema: StructType,
                     options: util.Map[String, String])
   extends ScanBuilder 
     with SupportsPushDownFilters 
-    with SupportsPushDownRequiredColumns {
+    with SupportsPushDownRequiredColumns 
+    with SupportsPushDownAggregates {
 
   private val logger = LoggerFactory.getLogger(getClass)
+  
+  var pushedFilter: Array[Filter] = new Array[Filter](0)
+  private var prunedSchema: StructType = schema
+  private var pushedAggregations = Aggregation(Seq.empty[AggregateFunc], Seq.empty[String])
+
   logger.trace("Created")
 
-  var scanFilters: Array[Filter] = new Array[Filter](0)
+  override def build(): Scan = new S3Scan(schema, options, 
+                                          pushedFilter, prunedSchema, pushedAggregations)
 
-  override def build(): Scan = new S3Scan(schema, options, scanFilters, prunedSchema)
-
-  private var prunedSchema: StructType = schema
-  def pruneColumns(requiredSchema: StructType): Unit = {
+  override def pruneColumns(requiredSchema: StructType): Unit = {
     if (!options.containsKey("DisablePushDown")) {
       prunedSchema = requiredSchema
       logger.info("pruneColumns " + requiredSchema.toString)
     }
   }
 
-  def pushedFilters: Array[Filter] = {
-    logger.trace("pushedFilters" + scanFilters.toList)
-    scanFilters
+  override def pushedFilters: Array[Filter] = {
+    logger.trace("pushedFilters" + pushedFilter.toList)
+    pushedFilter
   }
 
-  def pushFilters(filters: Array[Filter]): Array[Filter] = {
+  override def pushFilters(filters: Array[Filter]): Array[Filter] = {
     logger.trace("pushFilters" + filters.toList)
     if (options.containsKey("DisablePushDown")) {
       filters
     } else {
-      scanFilters = filters
+      pushedFilter = filters
       // return empty array to indicate we pushed down all the filters.
       Array[Filter]()
       // If we return all filters it will indicate they need to be re-evaluated.
-      // scanFilters
+      // pushedFilter
     }
   }
+
+  override def pushAggregation(aggregation: Aggregation): Unit = {
+    if (!options.containsKey("DisableAggregatePushDown") &&
+        (!Pushdown.compileAggregates(aggregation.aggregateExpressions)._1.isEmpty) ) {
+      pushedAggregations = aggregation
+    }
+  }
+
+  override def pushedAggregation(): Aggregation = pushedAggregations
 }
 
 class S3Scan(schema: StructType,
              options: util.Map[String, String],
-             filters: Array[Filter], prunedSchema: StructType)
+             filters: Array[Filter], prunedSchema: StructType,
+             pushedAggregation: Aggregation)
       extends Scan with Batch {
 
   private val logger = LoggerFactory.getLogger(getClass)
@@ -129,11 +145,13 @@ class S3Scan(schema: StructType,
 
   override def toBatch: Batch = this
 
-  private val maxPartSize: Long = (1024 * 1024 * 128)
+  private val maxPartSize: Long = (1024 * 128)
   private var partitions: Array[InputPartition] = getPartitions()
 
   private def generateFilePartitions(objectSummary : S3ObjectSummary): Array[InputPartition] = {
-    var store: S3Store = S3StoreFactory.getS3Store(schema, options, filters, prunedSchema)
+    var store: S3Store = S3StoreFactory.getS3Store(schema, options,
+                                                   filters, prunedSchema,
+                                                   pushedAggregation)
     var totalRows = store.getNumRows()
     var numPartitions: Int = 
       if (options.containsKey("partitions") &&
@@ -179,7 +197,9 @@ class S3Scan(schema: StructType,
     a.toArray
   }
   private def getPartitions(): Array[InputPartition] = {
-    var store: S3Store = S3StoreFactory.getS3Store(schema, options, filters, prunedSchema)
+    var store: S3Store = S3StoreFactory.getS3Store(schema, options, filters,
+                                                   prunedSchema,
+                                                   pushedAggregation)
     val objectSummaries : Array[S3ObjectSummary] = store.getObjectSummaries()
 
     // If there is only one file, we will partition it as needed automatically.
@@ -195,19 +215,23 @@ class S3Scan(schema: StructType,
     partitions
   }
   override def createReaderFactory(): PartitionReaderFactory =
-          new S3PartitionReaderFactory(schema, options, filters, prunedSchema)
+          new S3PartitionReaderFactory(schema, options, filters,
+                                       prunedSchema,
+                                       pushedAggregation)
 }
 
 class S3PartitionReaderFactory(schema: StructType,
                                options: util.Map[String, String],
                                filters: Array[Filter],
-                               prunedSchema: StructType)
+                               prunedSchema: StructType,
+                               pushedAggregation: Aggregation)
   extends PartitionReaderFactory {
   private val logger = LoggerFactory.getLogger(getClass)
   logger.trace("Created")
   override def createReader(partition: InputPartition): PartitionReader[InternalRow] = {
     new S3PartitionReader(schema, options, filters, 
-                          prunedSchema, partition.asInstanceOf[S3Partition])
+                          prunedSchema, partition.asInstanceOf[S3Partition],
+                          pushedAggregation)
   }
 }
 
@@ -215,7 +239,8 @@ class S3PartitionReader(schema: StructType,
                         options: util.Map[String, String],
                         filters: Array[Filter],
                         prunedSchema: StructType,
-                        partition: S3Partition)
+                        partition: S3Partition,
+                        pushedAggregation: Aggregation)
   extends PartitionReader[InternalRow] {
 
   private val logger = LoggerFactory.getLogger(getClass)
@@ -226,7 +251,9 @@ class S3PartitionReader(schema: StructType,
    * Then we return the data one row as a time as requested
    * Through the iterator interface.
    */
-  private var store: S3Store = S3StoreFactory.getS3Store(schema, options, filters, prunedSchema)
+  private var store: S3Store = S3StoreFactory.getS3Store(schema, options, 
+                                                         filters, prunedSchema,
+                                                         pushedAggregation)
   private var initted: Boolean = false
   private var rows: ArrayBuffer[InternalRow] = ArrayBuffer.empty[InternalRow]
   private var length: Int = 0

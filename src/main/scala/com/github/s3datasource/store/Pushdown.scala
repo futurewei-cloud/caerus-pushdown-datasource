@@ -13,6 +13,13 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ * 
+ * Note that portions of this code came from spark-select code:
+ *  https://github.com/minio/spark-select/blob/master/src/main/scala/io/minio/spark/select/FilterPushdown.scala
+ * 
+ * Other portions of this code, most notably compileAggregates, and getColumnSchema,
+ * came from this patch by Huaxin Gao:
+ *   https://github.com/apache/spark/pull/29695
  */
 // scalastyle:on
 package com.github.s3datasource.store

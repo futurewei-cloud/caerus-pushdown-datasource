@@ -118,7 +118,7 @@ object Pushdown {
     }
   }
   def quoteIdentifier(colName: String): String = {
-    s"""cast("$colName" as Int)"""
+    s""""$colName""""
   }
   def compileAggregates(aggregates: Seq[AggregateFunc]): 
                        (Map[String, Array[String]], Array[Filter]) = {
@@ -245,6 +245,18 @@ object Pushdown {
     (if (sb.length == 0) "" else sb.substring(1), 
      if (sb.length == 0) schema else updatedSchema, updatedFilters)
   }
+
+  def quoteIdentifierGroupBy(colName: String): String = {
+    s""""$colName""""
+  }
+  private def getGroupByClause(aggregation: Aggregation): String = {
+    if (aggregation.groupByExpressions.length > 0) {
+      val quotedColumns = aggregation.groupByExpressions.map(quoteIdentifierGroupBy)
+      s"GROUP BY ${quotedColumns.mkString(", ")}"
+    } else {
+      ""
+    }
+  }
   def queryFromSchema(schema: StructType,
                       prunedSchema: StructType,
                       columns: String,
@@ -261,11 +273,11 @@ object Pushdown {
     val whereClause = buildWhereClause(schema, filters)
     val objectClause = buildObjectClause(partition)
     var retVal = ""
-    val groupByClause = "" //"GROUP BY j"
+    val groupByClause = getGroupByClause(aggregation)
     if (whereClause.length == 0) {
-      retVal = s"SELECT $columnList FROM $objectClause $groupByClause s"
+      retVal = s"SELECT $columnList FROM $objectClause s $groupByClause"
     } else {
-      retVal = s"SELECT $columnList FROM $objectClause $groupByClause s $whereClause"
+      retVal = s"SELECT $columnList FROM $objectClause s $groupByClause $whereClause"
     }
     logger.info(s"""SQL Query partition(${partition.index}:${partition.key}): 
                  |${retVal}""".stripMargin);

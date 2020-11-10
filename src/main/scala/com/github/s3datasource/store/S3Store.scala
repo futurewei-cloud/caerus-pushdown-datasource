@@ -18,6 +18,7 @@
 package com.github.s3datasource.store
 
 import java.io.BufferedReader
+import java.io.InputStream
 import java.io.InputStreamReader
 import java.net.URI
 import java.nio.charset.StandardCharsets
@@ -40,6 +41,8 @@ import com.amazonaws.services.s3.AmazonS3URI
 import com.amazonaws.services.s3.model.ListObjectsV2Request
 import com.amazonaws.services.s3.model.ListObjectsV2Result
 import com.amazonaws.services.s3.model.S3ObjectSummary
+import com.amazonaws.services.s3.model.SelectRecordsInputStream
+
 import org.apache.commons.csv._
 import org.apache.commons.io.IOUtils
 import org.slf4j.LoggerFactory
@@ -99,8 +102,19 @@ abstract class S3Store(schema: StructType,
     .withPathStyleAccessEnabled(true)
     .withCredentials(staticCredentialsProvider(s3Credential))
     .build()
+  protected val (readColumns: String,
+                 readSchema: StructType,
+                 updatedFilters: Array[Filter]) = {
+    var (columns, updatedSchema, updatedFilters) = 
+      Pushdown.getColumnSchema(pushedAggregation, prunedSchema)
+    (columns,
+     if (updatedSchema.names.isEmpty) schema else updatedSchema,
+     updatedFilters)
+  }
 
   def getRows(partition: S3Partition): ArrayBuffer[InternalRow];
+  def getReader(partition: S3Partition): BufferedReader;
+  def getRowIter(partition: S3Partition): Iterator[InternalRow];
 
   def getNumRows(): Int = {
     var req = new ListObjectsV2Request()
@@ -179,7 +193,35 @@ class S3StoreCSV(var schema: StructType,
                                  pushedAggregation) {
 
   override def toString() : String = "S3StoreCSV" + params + filters.mkString(", ")
-
+  def drainInputStream(in: SelectRecordsInputStream) = {
+    var buf : Array[Byte] = new Array[Byte](9192);            
+      var n = 0;
+      var totalBytes = 0
+      do {
+        n = in.read(buf)
+        totalBytes += n
+      } while (n > -1)
+    //logger.info("current: " + n + " Total bytes: " + totalBytes)
+  }
+  def getReader(partition: S3Partition): BufferedReader = {
+    var params: Map[String, String] = Map("" -> "")
+    new BufferedReader(new InputStreamReader(
+      s3Client.selectObjectContent(
+            Select.requestCSV(partition.bucket,
+                              partition.key,
+                              params,
+                              schema,
+                              readSchema,
+                              readColumns,
+                              filters,
+                              pushedAggregation,
+                              partition)
+      ).getPayload().getRecordsInputStream()))
+  }
+   
+  def getRowIter(partition: S3Partition): Iterator[InternalRow] = {
+    new CSVRowIterator(getReader(partition), readSchema)
+  }
   override def getRows(partition: S3Partition): ArrayBuffer[InternalRow] = {
     val numRows = getNumRows()
     var records = new ArrayBuffer[InternalRow](numRows)
@@ -248,7 +290,37 @@ class S3StoreJSON(schema: StructType,
   extends S3Store(schema, params, filters, prunedSchema, pushedAggregation) {
 
   override def toString() : String = "S3StoreJSON" + params + filters.mkString(", ")
-
+  
+  def getReader(partition: S3Partition): BufferedReader = {
+    var params: Map[String, String] = Map("" -> "")
+    val (columns, updatedSchema, updatedFilters) =
+      Pushdown.getColumnSchema(pushedAggregation, prunedSchema)
+    val readSchema = if (updatedSchema.names.isEmpty) schema else updatedSchema
+    val csvFormat = CSVFormat.DEFAULT
+      .withHeader(readSchema.fields.map(x => x.name): _*)
+      .withRecordSeparator("\n")
+      .withDelimiter(params.getOrElse("delimiter", ",").charAt(0))
+      .withQuote(params.getOrElse("quote", "\"").charAt(0))
+      .withEscape(params.getOrElse(s"escape", "\\").charAt(0))
+      .withCommentMarker(params.getOrElse(s"comment", "#").charAt(0))
+    new BufferedReader(new InputStreamReader(
+      s3Client.selectObjectContent(
+            Select.requestJSON(partition.bucket,
+                              partition.key,
+                              params,
+                              schema,
+                              readSchema,
+                              columns,
+                              filters,
+                              pushedAggregation,
+                              partition)
+                              
+      ).getPayload().getRecordsInputStream()))
+  }
+  // TBD for JSON, stubbed out for now.
+  def getRowIter(partition: S3Partition): Iterator[InternalRow] = {
+    new CSVRowIterator(getReader(partition), readSchema)
+  }
   override def getRows(partition: S3Partition): ArrayBuffer[InternalRow] = {
     var records = new ArrayBuffer[InternalRow]
     var req = new ListObjectsV2Request()
@@ -313,7 +385,36 @@ class S3StoreParquet(schema: StructType,
   extends S3Store(schema, params, filters, prunedSchema, pushedAggregation) {
 
   override def toString() : String = "S3StoreParquet" + params + filters.mkString(", ")
-
+  
+  def getReader(partition: S3Partition): BufferedReader = {
+    var params: Map[String, String] = Map("" -> "")
+    val (columns, updatedSchema, updatedFilters) =
+      Pushdown.getColumnSchema(pushedAggregation, prunedSchema)
+    val readSchema = if (updatedSchema.names.isEmpty) schema else updatedSchema
+    val csvFormat = CSVFormat.DEFAULT
+      .withHeader(readSchema.fields.map(x => x.name): _*)
+      .withRecordSeparator("\n")
+      .withDelimiter(params.getOrElse("delimiter", ",").charAt(0))
+      .withQuote(params.getOrElse("quote", "\"").charAt(0))
+      .withEscape(params.getOrElse(s"escape", "\\").charAt(0))
+      .withCommentMarker(params.getOrElse(s"comment", "#").charAt(0))
+    new BufferedReader(new InputStreamReader(
+      s3Client.selectObjectContent(
+            Select.requestParquet(partition.bucket,
+                              partition.key,
+                              params,
+                              schema,
+                              readSchema,
+                              columns,
+                              filters,
+                              pushedAggregation,
+                              partition)                              
+      ).getPayload().getRecordsInputStream()))
+  }
+  // TBD for parquet, stubbed out for now.
+  def getRowIter(partition: S3Partition): Iterator[InternalRow] = {
+    new CSVRowIterator(getReader(partition), readSchema)
+  }
   override def getRows(partition: S3Partition): ArrayBuffer[InternalRow] = {
     var records = new ArrayBuffer[InternalRow]
     var req = new ListObjectsV2Request()

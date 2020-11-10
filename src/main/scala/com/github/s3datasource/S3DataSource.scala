@@ -22,7 +22,7 @@ import scala.collection.JavaConverters._
 import scala.collection.mutable.{ArrayBuffer, ListBuffer}
 
 import com.amazonaws.services.s3.model.S3ObjectSummary
-import com.github.s3datasource.store.{S3Partition, S3Store, S3StoreFactory, Pushdown}
+import com.github.s3datasource.store.{S3Partition, S3Store, S3StoreFactory, Pushdown, TypeCast}
 import org.slf4j.LoggerFactory
 
 import org.apache.spark.sql.catalyst.InternalRow
@@ -99,7 +99,7 @@ class S3ScanBuilder(schema: StructType,
                                           pushedFilter, prunedSchema, pushedAggregations)
 
   override def pruneColumns(requiredSchema: StructType): Unit = {
-    if (!options.containsKey("DisablePushDown")) {
+    if (!options.containsKey("DisableProjectPush")) {
       prunedSchema = requiredSchema
       logger.info("pruneColumns " + requiredSchema.toString)
     }
@@ -112,7 +112,7 @@ class S3ScanBuilder(schema: StructType,
 
   override def pushFilters(filters: Array[Filter]): Array[Filter] = {
     logger.trace("pushFilters" + filters.toList)
-    if (options.containsKey("DisablePushDown")) {
+    if (options.containsKey("DisableFilterPush")) {
       filters
     } else {
       pushedFilter = filters
@@ -124,7 +124,7 @@ class S3ScanBuilder(schema: StructType,
   }
 
   override def pushAggregation(aggregation: Aggregation): Unit = {
-    if (!options.containsKey("DisableAggregatePushDown") &&
+    if (false && !options.containsKey("DisableAggregatePush") &&
         (!Pushdown.compileAggregates(aggregation.aggregateExpressions)._1.isEmpty) ) {
       pushedAggregations = aggregation
     }
@@ -145,7 +145,7 @@ class S3Scan(schema: StructType,
 
   override def toBatch: Batch = this
 
-  private val maxPartSize: Long = (1024 * 128)
+  private val maxPartSize: Long = (1024 * 1024 * 128)
   private var partitions: Array[InputPartition] = getPartitions()
 
   private def generateFilePartitions(objectSummary : S3ObjectSummary): Array[InputPartition] = {
@@ -247,33 +247,22 @@ class S3PartitionReader(schema: StructType,
 
   logger.trace("Created")
 
-  /* We pull in the entire data set as a list.
-   * Then we return the data one row as a time as requested
-   * Through the iterator interface.
+  /* We setup a rowIterator and then read/parse
+   * each row as it is asked for.
    */
   private var store: S3Store = S3StoreFactory.getS3Store(schema, options, 
                                                          filters, prunedSchema,
                                                          pushedAggregation)
-  private var initted: Boolean = false
-  private var rows: ArrayBuffer[InternalRow] = ArrayBuffer.empty[InternalRow]
-  private var length: Int = 0
-  // logger.trace("rows " + rows.mkString(", "))
+  private var rowIterator: Iterator[InternalRow] = store.getRowIter(partition)
 
   var index = 0
   def next: Boolean = {
-    if (!initted) {
-      // read in the rows as they are needed.
-      rows = store.getRows(partition)
-      length = rows.length
-      initted = true
-    }
-    index < length
+    rowIterator.hasNext
   }
-
   def get: InternalRow = {
-    val row = rows(index)
+    val row = rowIterator.next
     if (((index % 500000) == 0) ||
-        (index == (length - 1))) {
+        (!next)) {
       logger.info(s"""get: partition: ${partition.index} ${partition.bucket} """ + 
                   s"""${partition.key} index: ${index}""")
     }

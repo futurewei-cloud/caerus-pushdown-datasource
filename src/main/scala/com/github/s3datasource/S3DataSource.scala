@@ -124,7 +124,7 @@ class S3ScanBuilder(schema: StructType,
   }
 
   override def pushAggregation(aggregation: Aggregation): Unit = {
-    if (false && !options.containsKey("DisableAggregatePush") &&
+    if (!options.containsKey("DisableAggregatePush") &&
         (!Pushdown.compileAggregates(aggregation.aggregateExpressions)._1.isEmpty) ) {
       pushedAggregations = aggregation
     }
@@ -265,6 +265,7 @@ class S3PartitionReader(schema: StructType,
         (!next)) {
       logger.info(s"""get: partition: ${partition.index} ${partition.bucket} """ + 
                   s"""${partition.key} index: ${index}""")
+      logger.info(row.toString)
     }
     index = index + 1
     row

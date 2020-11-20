@@ -29,6 +29,7 @@ import java.sql.{Date, Timestamp}
 import org.slf4j.LoggerFactory
 
 import org.apache.spark.sql.sources._
+import org.apache.spark.sql.sources.AggregationRef
 import org.apache.spark.sql.types._
 
 /**
@@ -120,52 +121,57 @@ object Pushdown {
   def quoteIdentifier(colName: String): String = {
     s""""$colName""""
   }
-  def compileAggregates(aggregates: Seq[AggregateFunc]): 
-                       (Map[String, Array[String]], Array[Filter]) = {
+  def compileAggregates(aggregates: Seq[AggregationExpr]): 
+                       (Seq[String], Array[Filter]) = {
     var filters = Array.empty[Filter]
     def quote(colName: String): String = quoteIdentifier(colName)
     val compiledAggregates = aggregates.map {
-      case Min(column, isDistinct, filter) =>
+       case Min(column, isDistinct, filter) =>
         if (filter.nonEmpty) filters +:= filter.get
         if (isDistinct) {
-          Some(quote(column) -> s"MIN(DISTINCT(${quote(column)}))")
+          s"MIN(DISTINCT(${quote(column)}))"
         } else {
-          Some(quote(column) -> s"MIN(${quote(column)})")
+          s"MIN(${quote(column)})"
         }
       case Max(column, isDistinct, filter) =>
         if (filter.nonEmpty) filters +:= filter.get
         if (isDistinct) {
-          Some(quote(column) -> s"MAX(DISTINCT(${quote(column)}))")
+          s"MAX(DISTINCT(${quote(column)}))"
         } else {
-          Some(quote(column) -> s"MAX(${quote(column)})")
+          s"MAX(${quote(column)})"
         }
       case Sum(column, isDistinct, _) =>
         if (isDistinct) {
-          Some(quote(column) -> s"SUM(DISTINCT(${quote(column)}))")
+          s"SUM(DISTINCT(${quote(column)}))"
         } else {
-          Some(quote(column) -> s"SUM(${quote(column)})")
+          s"SUM(${quote(column)})"
         }
       case Avg(column, isDistinct, _) =>
         if (isDistinct) {
-          Some(quote(column) -> s"AVG(DISTINCT(${quote(column)}))")
+          s"AVG(DISTINCT(${quote(column)}))"
         } else {
-          Some(quote(column) -> s"AVG(${quote(column)})")
+          s"AVG(${quote(column)})"
         }
-      case _ => None
+      case AggregationRef(column) =>
+        s"${quote(column)}"
+      case _ => ""
     }
-    var map: Map[String, Array[String]] = Map()
+    /* var map: Map[String, Array[String]] = Map()
     if (!compiledAggregates.contains(None)) {
       for (i <- 0 until compiledAggregates.length) {
-        val key = compiledAggregates(i).get._1
+        var key = compiledAggregates(i).get._1
         val value = map.get(key)
+        if (key.contains("*")) {
+          key = "\"" + key.split("[\"(#*+]").filter(_ != "")(0).replaceAll("\\s", "") + "\""
+        }
         if (value == None) {
           map += (key -> Array(compiledAggregates(i).get._2))
         } else {
           map += (key -> (value.get :+ compiledAggregates(i).get._2))
         }
       }
-    }
-    (map, filters)
+    } */
+    (compiledAggregates, filters)
   }
   /**
    * `columns`, but as a String suitable for injection into a SQL query.
@@ -181,25 +187,29 @@ object Pushdown {
     var updatedSchema: StructType = new StructType()
     var updatedFilters = Array.empty[Filter]
     updatedFilters = compiledAgg._2 // filters ++ 
-    val flippedMap = compiledAggregates.map(_.swap)
+    // val flippedMap = compiledAggregates.map(_.swap)
     val colDataTypeMap: Map[String, StructField] = quotedColumns.zip(schema.fields).toMap
     val sb = new StringBuilder()
     var index = 0
-    quotedColumns.map(c => compiledAggregates.getOrElse(c, c)).foreach(
-      x => x match {
-        case str: String =>
-          sb.append(", ").append(str)
-          val dataField = colDataTypeMap.get(str).get
+    for (agg <- aggregation.aggregateExpressions) {
+      agg match {
+        case aggRef: AggregationRef =>
+          sb.append(", ").append(agg.column)
+          val dataField = colDataTypeMap.get(agg.column).get
               updatedSchema = updatedSchema.add(dataField.name + "_" + index,
                                                 dataField.dataType,
                                                 dataField.nullable)
           index += 1
-        case array: Array[String] =>
-          sb.append(", ").append(array.mkString(", "))
+        case aggExpr@ (_:Sum | _:Min | _:Max | _:Avg) =>
+          val aggStr = compiledAggregates(index)
+          var col = if (aggStr.contains("*")) {
+            "\"" + key.split("[\"(#*+]").filter(_ != "")(0).replaceAll("\\s", "") + "\""
+          } else aggStr
+          sb.append(", ").append(aggStr.replaceAll("\"", ""))
           for (a <- array) {
             if (a.contains("MAX") || a.contains("MIN")) {
               // get the original column data type
-              val dataField = colDataTypeMap.get(flippedMap.get(array).get).get
+              val dataField = colDataTypeMap.get(col).get
               updatedSchema = updatedSchema.add(dataField.name + "_" +index,
                                                 dataField.dataType,
                                                 dataField.nullable)
@@ -209,7 +219,7 @@ object Pushdown {
               // FractionalType: if not Double, promote to Double
               // DecimalType.Fixed(precision, scale):
               //   follow what is done in Sum.resultType, +10 to precision
-              val dataField = colDataTypeMap.get(flippedMap.get(array).get).get
+              val dataField = colDataTypeMap.get(col).get
               dataField.dataType match {
               // We cannot access this private class. Disable for now.
               /* case DecimalType.Fixed(precision, scale) =>
@@ -227,7 +237,7 @@ object Pushdown {
               // DecimalType.Fixed(precision, scale):
               //   follow what is done in Average.resultType, +4 to precision and scale
               // promote to Double for other data types
-              val dataField = colDataTypeMap.get(flippedMap.get(array).get).get
+              val dataField = colDataTypeMap.get(col).get
               dataField.dataType match {
                 // We cannot access this private class. Disable for now.
                 /* case DecimalType.Fixed(p, s) => updatedSchema =
@@ -241,7 +251,7 @@ object Pushdown {
             index += 1
           }
       }
-    )
+    }
     (if (sb.length == 0) "" else sb.substring(1), 
      if (sb.length == 0) schema else updatedSchema, updatedFilters)
   }
@@ -275,9 +285,9 @@ object Pushdown {
     var retVal = ""
     val groupByClause = getGroupByClause(aggregation)
     if (whereClause.length == 0) {
-      retVal = s"SELECT $columnList FROM $objectClause s $groupByClause"
+      retVal = s"SELECT $columnList FROM $objectClause AS s $groupByClause"
     } else {
-      retVal = s"SELECT $columnList FROM $objectClause s $groupByClause $whereClause"
+      retVal = s"SELECT $columnList FROM $objectClause AS s $whereClause $groupByClause"
     }
     logger.info(s"""SQL Query partition(${partition.index}:${partition.key}): 
                  |${retVal}""".stripMargin);

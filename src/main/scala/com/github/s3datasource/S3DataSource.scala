@@ -124,8 +124,8 @@ class S3ScanBuilder(schema: StructType,
   }
 
   override def pushAggregation(aggregation: Aggregation): Unit = {
-    if (false && !options.containsKey("DisableAggregatePush") &&
-        (!Pushdown.compileAggregates(aggregation.aggregateExpressions)._1.isEmpty) ) {
+    if (!options.containsKey("DisableAggregatePush") &&
+        (!Pushdown.compileAggregates(aggregation.aggregateExpressions).isEmpty) ) {
       pushedAggregations = aggregation
     }
   }
@@ -152,7 +152,6 @@ class S3Scan(schema: StructType,
     var store: S3Store = S3StoreFactory.getS3Store(schema, options,
                                                    filters, prunedSchema,
                                                    pushedAggregation)
-    var totalRows = store.getNumRows()
     var numPartitions: Int = 
       if (options.containsKey("partitions") &&
           options.get("partitions").toInt != 0) {
@@ -164,6 +163,7 @@ class S3Scan(schema: StructType,
     if (numPartitions == 0) {
       throw new ArithmeticException("numPartitions is 0")
     }
+    var totalRows = if (numPartitions == 1) 0 else store.getNumRows()
     val partitionRows = totalRows / numPartitions
     var partitionArray = new ArrayBuffer[InputPartition](0)
     logger.debug(s"""Num Partitions ${numPartitions}""")

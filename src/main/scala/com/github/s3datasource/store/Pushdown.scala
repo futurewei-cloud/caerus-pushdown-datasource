@@ -95,7 +95,12 @@ object Pushdown {
       case GreaterThan(attr, value) => buildComparison(attr, value, ">")
       case LessThanOrEqual(attr, value) => buildComparison(attr, value, "<=")
       case GreaterThanOrEqual(attr, value) => buildComparison(attr, value, ">=")
-      case _ => None
+      case IsNull(attr) => Option(s"${attr} IS NULL")
+      case IsNotNull(attr) => Option(s"${attr} IS NOT NULL")
+      case StringStartsWith(attr, value) => Option(s"${attr} LIKE '${value}%'")
+      case StringEndsWith(attr, value) => Option(s"${attr} LIKE '%${value}'")
+      case StringContains(attr, value) => Option(s"${attr} LIKE '%${value}%'")
+      case other@_ => { logger.info("unknown filter:" + other) ; None }
     }
   }
 

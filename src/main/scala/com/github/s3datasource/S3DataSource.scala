@@ -115,11 +115,17 @@ class S3ScanBuilder(schema: StructType,
     if (options.containsKey("DisableFilterPush")) {
       filters
     } else {
-      pushedFilter = filters
-      // return empty array to indicate we pushed down all the filters.
-      Array[Filter]()
-      // If we return all filters it will indicate they need to be re-evaluated.
-      // pushedFilter
+      val f = filters.map(f => Pushdown.buildFilterExpression(schema, f))
+      logger.trace("compiled filter list: " + f.mkString(", "))
+      if (!f.contains(None)) {
+        pushedFilter = filters
+        // return empty array to indicate we pushed down all the filters.
+        Array[Filter]()
+      } else {
+        logger.info("Not pushing down filters.")
+        // If we return all filters it will indicate they need to be re-evaluated.
+        filters
+      }
     }
   }
 

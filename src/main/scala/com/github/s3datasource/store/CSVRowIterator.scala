@@ -60,7 +60,7 @@ class CSVRowIterator(rowReader: BufferedReader,
         // Field range is from after " to just before (-1) next quote
         value = line.substring(fieldStart + 1, fieldStart + fieldEnd + 1)
         // Next field start is after quote and comma
-        fieldStart = fieldEnd + 2
+        fieldStart = fieldStart + 1 + fieldEnd + 2
       }
       val field = schema.fields(index)
       row(index) = TypeCast.castTo(value, field.dataType,

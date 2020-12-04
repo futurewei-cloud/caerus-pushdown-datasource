@@ -42,6 +42,8 @@ import com.amazonaws.services.s3.AmazonS3URI
 import com.amazonaws.services.s3.model.ListObjectsV2Request
 import com.amazonaws.services.s3.model.ListObjectsV2Result
 import com.amazonaws.services.s3.model.S3ObjectSummary
+import com.amazonaws.services.s3.model.SelectObjectContentEvent
+import com.amazonaws.services.s3.model.SelectObjectContentEventVisitor
 import com.amazonaws.services.s3.model.SelectRecordsInputStream
 
 import org.apache.commons.csv._
@@ -217,9 +219,13 @@ class S3StoreCSV(var schema: StructType,
                               filters,
                               pushedAggregation,
                               partition)
-      ).getPayload().getRecordsInputStream()))
+      ).getPayload().getRecordsInputStream(new SelectObjectContentEventVisitor() {
+        override def visit(event: SelectObjectContentEvent.RecordsEvent) {
+          var data = event.getPayload().array()
+          S3StoreCSV.currentTransferLength += data.length
+        }
+       })))
   }
-   
   def getRowIter(partition: S3Partition): Iterator[InternalRow] = {
     new CSVRowIterator(getReader(partition), readSchema)
   }
@@ -474,3 +480,10 @@ class S3StoreParquet(schema: StructType,
 }
 
 
+object S3StoreCSV {
+  private var currentTransferLength: Double = 0
+
+  def resetTransferLength : Unit = { currentTransferLength = 0 }
+  def getTransferLength : Double = { currentTransferLength }
+
+}

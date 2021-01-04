@@ -223,6 +223,8 @@ class S3StoreCSV(var schema: StructType,
         override def visit(event: SelectObjectContentEvent.RecordsEvent) {
           var data = event.getPayload().array()
           S3StoreCSV.currentTransferLength += data.length
+          //val lines = (data.map(_.toChar)).mkString.split("\r\n|\r|\n").length
+          //S3StoreCSV.currentRows += lines
         }
        })))
   }
@@ -482,8 +484,6 @@ class S3StoreParquet(schema: StructType,
 
 object S3StoreCSV {
   private var currentTransferLength: Double = 0
-
   def resetTransferLength : Unit = { currentTransferLength = 0 }
   def getTransferLength : Double = { currentTransferLength }
-
 }

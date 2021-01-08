@@ -19,8 +19,9 @@ libraryDependencies ++= Seq(
   "org.apache.httpcomponents" % "httpcore" % "4.4.11",
   "org.slf4j" % "slf4j-api" % "1.7.30" % "provided",
   "org.mockito" % "mockito-core" % "2.0.31-beta",
-  "org.scalatest" % "scalatest_2.12" % "3.2.2",
-)
+ )
+
+libraryDependencies += "org.scalatest" %% "scalatest" % "3.2.2" % "test"
 
 libraryDependencies ++= Seq(
   "org.apache.spark" %% "spark-core" % sparkVersion,

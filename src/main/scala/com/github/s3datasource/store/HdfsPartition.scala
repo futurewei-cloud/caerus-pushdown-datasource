@@ -19,16 +19,15 @@ package com.github.datasource.store
 import org.apache.spark.Partition
 import org.apache.spark.sql.connector.read.InputPartition
 
-class S3Partition(var index: Int,
-                  var rowOffset: Long = 0, var numRows: Long = 0,
-                  var onlyPartition: Boolean = true,
-                  var bucket: String = "",
-                  var key: String = "")
+class HdfsPartition(var index: Int,
+                    var offset: Long = 0,
+                    var length: Long = 0,
+                    var name: String = "")
   extends Partition with InputPartition {
 
   override def toString() : String = {
-    s"""S3Partition index ${index} rowOffset: ${rowOffset} numRows: ${numRows} """ +
-    s"""onlyPartition: ${onlyPartition} bucket: ${bucket} key: ${key}"""
+    s"""HdfsPartition index ${index} offset: ${offset} length: ${length} """ +
+    s"""name: ${name}"""
   }
 
   override def preferredLocations(): Array[String] = {

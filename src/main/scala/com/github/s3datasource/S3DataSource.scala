@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.github.s3datasource
+package com.github.datasource
 
 import java.util
 
@@ -22,7 +22,7 @@ import scala.collection.JavaConverters._
 import scala.collection.mutable.{ArrayBuffer, ListBuffer}
 
 import com.amazonaws.services.s3.model.S3ObjectSummary
-import com.github.s3datasource.store.{S3Partition, S3Store, S3StoreFactory, Pushdown, TypeCast}
+import com.github.datasource.store.{S3Partition, S3Store, S3StoreFactory, Pushdown, TypeCast}
 import org.slf4j.LoggerFactory
 
 import org.apache.spark.sql.catalyst.InternalRow
@@ -76,12 +76,12 @@ class S3BatchTable(schema: StructType,
     Set(TableCapability.BATCH_READ).asJava
 
   override def newScanBuilder(params: CaseInsensitiveStringMap): ScanBuilder =
-      new S3ScanBuilder(schema, options)
+      new PushdownScanBuilder(schema, options)
 }
 
 
-class S3ScanBuilder(schema: StructType,
-                    options: util.Map[String, String])
+class PushdownScanBuilder(schema: StructType,
+                          options: util.Map[String, String])
   extends ScanBuilder 
     with SupportsPushDownFilters 
     with SupportsPushDownRequiredColumns 
@@ -95,8 +95,18 @@ class S3ScanBuilder(schema: StructType,
 
   logger.trace("Created")
 
-  override def build(): Scan = new S3Scan(schema, options, 
-                                          pushedFilter, prunedSchema, pushedAggregations)
+  override def build(): Scan = {
+    if (options.get("path").contains("s3a")) {
+      new S3Scan(schema, options, 
+                 pushedFilter, prunedSchema, pushedAggregations)
+    } else {
+      if (!options.get("path").contains("hdfs")) {
+        throw new Exception(s"endpoint ${options.get("endpoint")} is unexpected")
+      }
+      new HdfsScan(schema, options,     
+                   pushedFilter, prunedSchema, pushedAggregations)
+    }
+  }
 
   override def pruneColumns(requiredSchema: StructType): Unit = {
     if (!options.containsKey("DisableProjectPush")) {

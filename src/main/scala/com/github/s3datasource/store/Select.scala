@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 // scalastyle:on
-package com.github.s3datasource.store
+package com.github.datasource.store
 
 import com.amazonaws.services.s3.model.CompressionType
 import com.amazonaws.services.s3.model.CSVInput

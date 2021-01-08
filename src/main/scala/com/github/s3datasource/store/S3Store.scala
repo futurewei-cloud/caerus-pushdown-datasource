@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 // scalastyle:on
-package com.github.s3datasource.store
+package com.github.datasource.store
 
 import java.io.BufferedReader
 import java.io.InputStream
@@ -104,8 +104,8 @@ abstract class S3Store(schema: StructType,
                                params.get("endpoint"), Regions.US_EAST_1.name()))
     .withPathStyleAccessEnabled(true)
     .withCredentials(staticCredentialsProvider(s3Credential))
-    .withClientConfiguration(new ClientConfiguration().withRequestTimeout(5 * 60 * 1000)
-                                                      .withSocketTimeout(5 * 60 * 1000))
+    .withClientConfiguration(new ClientConfiguration().withRequestTimeout(24 * 3600 * 1000)
+                                                      .withSocketTimeout(24 * 3600* 1000))
     .build()
   protected val (readColumns: String,
                  readSchema: StructType) = {

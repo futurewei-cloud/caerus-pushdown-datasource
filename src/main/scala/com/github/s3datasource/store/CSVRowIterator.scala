@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package com.github.s3datasource.store
+package com.github.datasource.store
 
 import java.io.BufferedReader
 import java.util
@@ -66,6 +66,9 @@ class CSVRowIterator(rowReader: BufferedReader,
       row(index) = TypeCast.castTo(value, field.dataType,
                                    field.nullable)
       index += 1
+    }
+    if (index < schema.fields.length) {
+      println("line too short ${index}/${schema.fields.length}: ${line}")
     }
     InternalRow.fromSeq(row.toSeq)
   }

@@ -67,10 +67,16 @@ class CSVRowIterator(rowReader: BufferedReader,
                                    field.nullable)
       index += 1
     }
+    /* We can get broken lines when dealing with
+     * hdfs, so we will simply discard the row since
+     * the next partition will pick up this row.
+     */
     if (index < schema.fields.length) {
-      println("line too short ${index}/${schema.fields.length}: ${line}")
+      //println(s"line too short ${index}/${schema.fields.length}: ${line}")
+      InternalRow.empty
+    } else {
+      InternalRow.fromSeq(row.toSeq)
     }
-    InternalRow.fromSeq(row.toSeq)
   }
 
   /* We have the option of parsing ourselves or

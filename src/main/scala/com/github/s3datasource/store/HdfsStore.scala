@@ -24,16 +24,12 @@ import java.util
 import java.util.Locale
 
 import scala.collection.JavaConverters._
-import scala.collection.mutable.{ArrayBuffer, ListBuffer}
 import scala.util.control.NonFatal
 
 import org.apache.commons.csv._
 import org.apache.commons.io.IOUtils
+import org.apache.commons.io.input.BoundedInputStream
 import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.hdfs.HdfsConfiguration
-import org.apache.hadoop.hdfs.DistributedFileSystem
-import org.apache.hadoop.hdfs.protocol.LocatedBlock
-import org.apache.hadoop.hdfs.protocol.LocatedBlocks
 import org.apache.hadoop.hdfs.web.WebHdfsFileSystem
 import org.apache.hadoop.fs.BlockLocation
 import org.apache.hadoop.fs.Path
@@ -45,13 +41,9 @@ import org.apache.spark.sql.{DataFrame, Row, SQLContext}
 import org.apache.spark.sql.{SaveMode, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.encoders.RowEncoder
-import org.apache.spark.sql.connector.catalog.{SessionConfigSupport, SupportsRead, Table, TableCapability, TableProvider}
-import org.apache.spark.sql.connector.expressions.Transform
 import org.apache.spark.sql.connector.read._
 import org.apache.spark.sql.sources.{Aggregation, Filter}
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.util.CaseInsensitiveStringMap
-import org.apache.spark.unsafe.types.UTF8String
 
 object HdfsStoreFactory{
   def getStore(schema: StructType,
@@ -85,7 +77,7 @@ abstract class HdfsStore(schema: StructType,
     (columns,
      if (updatedSchema.names.isEmpty) schema else updatedSchema)
   }
-  protected val (fileSystem: WebHdfsFileSystem) = {
+  protected val fileSystem: WebHdfsFileSystem = {
     val conf = new Configuration()
     val hdfsCoreSitePath = new Path("/home/rob/config/core-client.xml")
     conf.set("dfs.datanode.drop.cache.behind.reads", "true")
@@ -106,12 +98,17 @@ abstract class HdfsStore(schema: StructType,
     val fileBlocks: Array[BlockLocation] = 
       fileSystem.getFileBlockLocations(fileToRead, 0, fileStatus.getLen())
 
-    for (block <- fileBlocks) {
+    /* for (block <- fileBlocks) {
       val names = block.getNames
       println("offset: " + block.getOffset + " length: " + block.getLength
               + " location: " + names(0))
-    }
+    }*/
     fileBlocks
+  }
+  def getLength(fileName: String) : Long = {
+    val fileToRead = new Path(endpoint + "/" + fileName)
+    val fileStatus = fileSystem.getFileStatus(fileToRead)
+    fileStatus.getLen
   }
 }
 
@@ -124,30 +121,39 @@ class HdfsStoreCSV(var schema: StructType,
                     pushedAggregation) {
 
   override def toString() : String = "HdfsStoreCSV" + params + filters.mkString(", ")
+
+  @throws(classOf[Exception])
   def getStartOffset(partition: HdfsPartition) : Long = {
     val filePath = new Path(endpoint + "/" + partition.name)
     if (partition.offset == 0) {
         0
     } else {
-        val priorBytes = 40
-        var lineEnd = -1
-        val bufferBytes = 45
-          //if (partition.length > 1024) priorBytes + 1024 else (priorBytes + partition.length.asInstanceOf[Int])
+        /* When we are not the first partition, 
+         * read the end of the last partition and find the prior line break.
+         * The prior partition will stop at the end of the partition and discard
+         * the partial line.  This partition will include that prior line.
+         */
+        val partitionBytes = 1024
+        val priorBytes = 1024
+        var lineEnd: Long = -1
+        val bufferBytes =
+          if (partition.length > partitionBytes) {
+              priorBytes + partitionBytes
+          } else {
+              (priorBytes + partition.length.asInstanceOf[Int])
+          }
         val buffer = new Array[Byte](bufferBytes)
         val inStrm = fileSystem.open(filePath)
         inStrm.seek(partition.offset)
-        //val strm = new InputStreamReader(inStrm)
         inStrm.readFully(partition.offset - priorBytes, buffer)
-        //inStrm.readFully(0, buffer)
         for (i <- priorBytes to 0 by -1) {
             if (buffer(i) == '\n') {
-                println(s"Found line end at ${i}")
-                lineEnd = i + 1
+                lineEnd = partition.offset - (priorBytes.asInstanceOf[Long] - (i.asInstanceOf[Long] + 1))
                 return lineEnd
             }
         }
         if (lineEnd == -1) {
-            //throw Exception("line end not found")
+            throw new Exception("line end not found")
         }
         lineEnd
     }
@@ -155,8 +161,10 @@ class HdfsStoreCSV(var schema: StructType,
   def getReader(partition: HdfsPartition): BufferedReader = {
     val filePath = new Path(endpoint + "/" + partition.name)
     val inStrm = fileSystem.open(filePath)
-    inStrm.seek(getStartOffset(partition))
-    new BufferedReader(new InputStreamReader(inStrm))
+    val startOffset = getStartOffset(partition)
+    inStrm.seek(startOffset)
+    val partitionLength = (partition.offset + partition.length) - startOffset
+    new BufferedReader(new InputStreamReader(new BoundedInputStream(inStrm, partitionLength)))
   }
   def getRowIter(partition: HdfsPartition): Iterator[InternalRow] = {
     new CSVRowIterator(getReader(partition), readSchema)

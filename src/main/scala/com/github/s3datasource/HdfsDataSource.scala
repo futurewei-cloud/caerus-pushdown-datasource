@@ -19,25 +19,17 @@ package com.github.datasource
 import java.util
 
 import scala.collection.JavaConverters._
-import scala.collection.mutable.{ArrayBuffer, ListBuffer}
+import scala.collection.mutable.{ArrayBuffer}
 
-import com.github.datasource.store.{HdfsPartition, HdfsStore, HdfsStoreFactory, Pushdown, TypeCast}
+import com.github.datasource.store.{HdfsPartition, HdfsStore, HdfsStoreFactory}
 import org.slf4j.LoggerFactory
-
-import org.apache.hadoop.hdfs.protocol.LocatedBlock
-import org.apache.hadoop.hdfs.protocol.LocatedBlocks
 
 import org.apache.hadoop.fs.BlockLocation
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.connector.catalog.{SessionConfigSupport, SupportsRead, Table, TableCapability, TableProvider}
-import org.apache.spark.sql.connector.expressions.Transform
 import org.apache.spark.sql.connector.read._
-import org.apache.spark.sql.sources.DataSourceRegister
 import org.apache.spark.sql.sources.Aggregation
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.util.CaseInsensitiveStringMap
-import org.apache.spark.unsafe.types.UTF8String
 
 class HdfsScan(schema: StructType,
                options: util.Map[String, String],
@@ -55,18 +47,22 @@ class HdfsScan(schema: StructType,
   private var partitions: Array[InputPartition] = getPartitions()
 
   private def createPartitions(blockList: Array[BlockLocation],
-                               fileName: String): Array[InputPartition] = {
+                               fileName: String,
+                               store: HdfsStore): Array[InputPartition] = {
     var a = new ArrayBuffer[InputPartition](0)
     var i = 0
-    // In this case we generate one partition per file.
-    for (block <- blockList) {
-      println(block)
-      a += new HdfsPartition(index = i, offset = block.getOffset, length = block.getLength,
+    if (options.containsKey("partitions") &&
+          options.get("partitions").toInt == 1) {   
+      a += new HdfsPartition(index = 0, offset = 0, length = store.getLength(fileName),
                              name = fileName)
-      i += 1
+    } else {
+      // Generate one partition per hdfs block.
+      for (block <- blockList) {
+        a += new HdfsPartition(index = i, offset = block.getOffset, length = block.getLength,
+                               name = fileName)
+        i += 1
+      }
     }
-    a += new HdfsPartition(index = i, offset = 40, length = 5,
-                           name = fileName)
     logger.info(a.mkString(" "))
     a.toArray
   }
@@ -76,7 +72,7 @@ class HdfsScan(schema: StructType,
                                                      pushedAggregation)
     val fileName = options.get("path").replace("hdfs://", "")                                                 
     val blocks : Array[BlockLocation] = store.getBlockList(fileName)
-    createPartitions(blocks, fileName)
+    createPartitions(blocks, fileName, store)
   }
 
   override def planInputPartitions(): Array[InputPartition] = {

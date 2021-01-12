@@ -98,7 +98,7 @@ abstract class S3Store(schema: StructType,
   logger.trace("S3Store Created")
 
   protected val s3Credential = new BasicAWSCredentials(params.get("accessKey"),
-                                                     params.get("secretKey"))
+                                                       params.get("secretKey"))
   protected val s3Client = AmazonS3ClientBuilder.standard()
     .withEndpointConfiguration(new AwsClientBuilder.EndpointConfiguration(
                                params.get("endpoint"), Regions.US_EAST_1.name()))
@@ -223,8 +223,6 @@ class S3StoreCSV(var schema: StructType,
         override def visit(event: SelectObjectContentEvent.RecordsEvent) {
           var data = event.getPayload().array()
           S3StoreCSV.currentTransferLength += data.length
-          //val lines = (data.map(_.toChar)).mkString.split("\r\n|\r|\n").length
-          //S3StoreCSV.currentRows += lines
         }
        })))
   }

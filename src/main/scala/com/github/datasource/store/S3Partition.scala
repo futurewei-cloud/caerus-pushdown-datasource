@@ -19,6 +19,15 @@ package com.github.datasource.store
 import org.apache.spark.Partition
 import org.apache.spark.sql.connector.read.InputPartition
 
+/** Represents a partition on an S3 store.
+ *
+ * @param index the position in order of partitions.
+ * @param rowOffset offset from start of file in units of number of rows.
+ * @param numRows the number of rows in the partition
+ * @param onlyPartition true if this is the only partition
+ * @param bucket the name of the directory or s3 "bucket"
+ * @param key the name of the filename or s3 "key"
+ */
 class S3Partition(var index: Int,
                   var rowOffset: Long = 0, var numRows: Long = 0,
                   var onlyPartition: Boolean = true,

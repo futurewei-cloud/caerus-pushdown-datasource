@@ -36,6 +36,10 @@ import com.amazonaws.services.s3.model.SSECustomerKey
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types._
 
+/** Utility functions for dealing with forming
+ *  S3Select opeations across S3.
+ *
+ */
 object Select {
   private val SERVER_ENCRYPTION_ALGORITHM = s"fs.s3a.server-side-encryption-algorithm"
   private val SERVER_ENCRYPTION_KEY = s"fs.s3a.server-side-encryption.key"
@@ -75,6 +79,20 @@ object Select {
     }
   }
 
+  /** Returns a SelectObjectContentRequest for S3 and returning Parquet format,
+   *  including all the various pushdown queries that are passed in.
+   *
+   * @param bucket the bucket/path in the current s3 filesystem
+   * @param key the key/filename in the current s3 filesystem
+   * @param params the set of parameters for generating this request
+   * @param schema the definition of all column formats
+   * @param prunedSchema the set of columns after pruning
+   * @param columns the list of column names.
+   * @param filters the list of filters to push
+   * @param aggregation the list of aggregates to push
+   * @param partition the partition we are operating on.
+   * @return a SelectObjectContentRequest for the current query.
+   */
   def requestParquet(bucket: String, key: String, params: Map[String, String],
                      schema: StructType, prunedSchema: StructType, columns: String,
                      filters: Array[Filter],
@@ -108,6 +126,20 @@ object Select {
     }
   }
 
+  /** Returns a SelectObjectContentRequest for S3 and returning JSON format
+   *  including all the various pushdown queries that are passed in.
+   *
+   * @param bucket the bucket/path in the current s3 filesystem
+   * @param key the key/filename in the current s3 filesystem
+   * @param params the set of parameters for generating this request
+   * @param schema the definition of all column formats
+   * @param prunedSchema the set of columns after pruning
+   * @param columns the list of column names.
+   * @param filters the list of filters to push
+   * @param aggregation the list of aggregates to push
+   * @param partition the partition we are operating on.
+   * @return a SelectObjectContentRequest for the current query.
+   */
   def requestJSON(bucket: String, key: String, params: Map[String, String],
                   schema: StructType, prunedSchema: StructType,
                   columns: String,
@@ -144,7 +176,20 @@ object Select {
     }
   }
 
-/* Temporarily removed hadoopConfiguration: Configuration as a parameter. */
+  /** Returns a SelectObjectContentRequest for S3 returning CSV format
+   *  including all the various pushdown queries that are passed in.
+   *
+   * @param bucket the bucket/path in the current s3 filesystem
+   * @param key the key/filename in the current s3 filesystem
+   * @param params the set of parameters for generating this request
+   * @param schema the definition of all column formats
+   * @param prunedSchema the set of columns after pruning
+   * @param columns the list of column names.
+   * @param filters the list of filters to push
+   * @param aggregation the list of aggregates to push
+   * @param partition the partition we are operating on.
+   * @return a SelectObjectContentRequest for the current query.
+   */
   def requestCSV(bucket: String, key: String, params: Map[String, String],
                  schema: StructType, prunedSchema: StructType, columns: String,
                  filters: Array[Filter],
@@ -184,6 +229,16 @@ object Select {
       request.setOutputSerialization(outputSerialization)
     }
   }
+
+  /** Returns a SelectObjectContentRequest object for fetching the
+   *  number of rows in this table.
+   *
+   * @param bucket the bucket/path in the current s3 filesystem
+   * @param key the key/filename in the current s3 filesystem
+   * @param params the set of parameters for generating this request
+   * @param schema the definition of all column formats
+   * @return SelectObjectContentRequest to perform count(*) on this table.
+   */
   def requestCount(bucket: String, key: String, params: Map[String, String],
     schema: StructType): SelectObjectContentRequest = {
     new SelectObjectContentRequest() { request =>

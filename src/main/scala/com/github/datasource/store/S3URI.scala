@@ -21,7 +21,17 @@ import java.net.URI
 
 import com.amazonaws.services.s3.AmazonS3URI
 
+/** Provides methods related to S3 URI manipulation.
+ *
+ */
 object S3URI {
+  /** return a real AmazonS3URI for the given input string.
+   * This does the translation for s3, s3a, or s3n URLs.
+   *
+   * @param location the endpoint to connect to, includes the
+   *                 "s3://", "s3a://", or "s3n://"
+   * @return the AmazonS3URI object.
+   */
   def toAmazonS3URI(
     location: String): AmazonS3URI = {
     val uri = new URI(location)

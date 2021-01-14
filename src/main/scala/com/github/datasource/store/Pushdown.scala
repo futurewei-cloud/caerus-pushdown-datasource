@@ -100,7 +100,7 @@ object Pushdown {
       case StringStartsWith(attr, value) => Option(s"${attr} LIKE '${value}%'")
       case StringEndsWith(attr, value) => Option(s"${attr} LIKE '%${value}'")
       case StringContains(attr, value) => Option(s"${attr} LIKE '%${value}%'")
-      case other@_ => { logger.info("unknown filter:" + other) ; None }
+      case other@_ => logger.info("unknown filter:" + other) ; None
     }
   }
 
@@ -132,7 +132,7 @@ object Pushdown {
    * `columns`, but as a String suitable for injection into a SQL query.
    */
   def getColumnSchema(aggregation: Aggregation,
-                      schema: StructType): 
+                      schema: StructType):
                      (String, StructType) = {
 
     val compiledAgg = compileAggregates(aggregation.aggregateExpressions)
@@ -145,9 +145,15 @@ object Pushdown {
     } else {
       updatedSchema = getAggregateColumnsList(sb, aggregation, schema, compiledAgg)
     }
-    (if (sb.length == 0) "" else sb.substring(1), 
+    (if (sb.length == 0) "" else sb.substring(1),
      if (sb.length == 0) schema else updatedSchema)
   }
+
+  /** Returns an array of aggregates translated to strings.
+   *
+   * @param aggregates the array of aggregates to translate
+   * @return array of strings
+   */
   def compileAggregates(aggregates: Seq[AggregateFunc]): (Array[String]) = {
     def quote(colName: String): String = quoteIdentifier(colName)
     val aggBuilder = ArrayBuilder.make[String]
@@ -196,12 +202,12 @@ object Pushdown {
     }
     colsBuilder.result.mkString(" ")
   }
-
   private def getAggregateColumnsList(sb: StringBuilder,
-                                      aggregation: Aggregation, schema: StructType, 
+                                      aggregation: Aggregation, schema: StructType,
                                       compiledAgg: Array[String]) = {
     val columnNames = schema.map(_.name).toArray
-    val quotedColumns: Array[String] = columnNames.map(colName => quoteIdentifier(colName.toLowerCase(Locale.ROOT)))
+    val quotedColumns: Array[String] =
+      columnNames.map(colName => quoteIdentifier(colName.toLowerCase(Locale.ROOT)))
     val colDataTypeMap: Map[String, StructField] = quotedColumns.zip(schema.fields).toMap
     val newColsBuilder = ArrayBuilder.make[String]
     var updatedSchema: StructType = new StructType()
@@ -276,7 +282,7 @@ object Pushdown {
   }
 
   private def contains(s1: String, s2: String, checkParathesis: Boolean): Boolean = {
-    if (false /*SQLConf.get.caseSensitiveAnalysis*/) {
+    if (false /* SQLConf.get.caseSensitiveAnalysis */) {
       if (checkParathesis) s1.contains("(" + s2) else s1.contains(s2)
     } else {
       if (checkParathesis) {
@@ -331,6 +337,11 @@ object Pushdown {
       ""
     }
   }
+
+  /** Returns a string to represent the input query.
+   *
+   * @return String representing the query to send to the endpoint.
+   */
   def queryFromSchema(schema: StructType,
                       prunedSchema: StructType,
                       columns: String,
@@ -353,9 +364,8 @@ object Pushdown {
     } else {
       retVal = s"SELECT $columnList FROM $objectClause s $whereClause $groupByClause"
     }
-    logger.info(s"""SQL Query partition(${partition.index}:${partition.key}): 
+    logger.info(s"""SQL Query partition(${partition.index}:${partition.key}):
                  |${retVal}""".stripMargin);
     retVal
   }
-
 }

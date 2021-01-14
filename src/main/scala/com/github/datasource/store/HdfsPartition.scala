@@ -19,6 +19,13 @@ package com.github.datasource.store
 import org.apache.spark.Partition
 import org.apache.spark.sql.connector.read.InputPartition
 
+/** Represents a partition on an hdfs file system
+ *
+ * @param index the position in order of partitions.
+ * @param offset the byte offset from start of file
+ * @param length the total bytes in the file
+ * @param name the full path of the file
+ */
 class HdfsPartition(var index: Int,
                     var offset: Long = 0,
                     var length: Long = 0,

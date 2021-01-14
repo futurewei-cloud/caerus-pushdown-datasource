@@ -45,7 +45,22 @@ import org.apache.spark.sql.connector.read._
 import org.apache.spark.sql.sources.{Aggregation, Filter}
 import org.apache.spark.sql.types._
 
-object HdfsStoreFactory{
+/** A Factory to fetch the correct type of
+ *  store object depending on the expected output type
+ *  to be sent back from the store.
+ */
+object HdfsStoreFactory {
+  /** Returns the store object which can process
+   *  the input format from params("format").
+   *  Currently only csv is supported.
+   *
+   * @param schema the StructType schema to construct store with.
+   * @param params the parameters including those to construct the store
+   * @param filters the filters to pass down to the store.
+   * @param prunedSchema the schema to pushdown (column pruning)
+   * @param pushedAggregation the aggregate operations to pushdown
+   * @return a new HdfsStore object constructed with above parameters.
+   */
   def getStore(schema: StructType,
                params: java.util.Map[String, String],
                filters: Array[Filter],
@@ -59,6 +74,16 @@ object HdfsStoreFactory{
     }
   }
 }
+/** An abstract hdfs store object which can connect
+ *  to an hdfs endpoint, specified by params("endpoint")
+ *  Other parameters are parmas("path")
+ *
+ * @param schema the StructType schema to construct store with.
+ * @param params the parameters including those to construct the store
+ * @param filters the filters to pass down to the store.
+ * @param prunedSchema the schema to pushdown (column pruning)
+ * @param pushedAggregation the aggregate operations to pushdown
+ */
 abstract class HdfsStore(schema: StructType,
                          params: java.util.Map[String, String],
                          filters: Array[Filter],
@@ -91,6 +116,13 @@ abstract class HdfsStore(schema: StructType,
   def getFilePath(fileName: String) : String = {  
     endpoint + "/" + fileName.replace("hdfs://", "")
   }
+
+  /** Returns a list of BlockLocation object representing
+   *  all the hdfs blocks in a file.
+   *
+   * @param fileName the full filename path
+   * @return BlockLocation objects for the file
+   */
   def getBlockList(fileName: String) : Array[BlockLocation] = {
     val fileToRead = new Path(endpoint + "/" + fileName)
     val fileStatus = fileSystem.getFileStatus(fileToRead)
@@ -105,59 +137,86 @@ abstract class HdfsStore(schema: StructType,
     }*/
     fileBlocks
   }
+
+  /** Returns the length of the file in bytes.
+   *
+   * @param fileName the full path of the file
+   * @return byte length of the file.
+   */
   def getLength(fileName: String) : Long = {
     val fileToRead = new Path(endpoint + "/" + fileName)
     val fileStatus = fileSystem.getFileStatus(fileToRead)
     fileStatus.getLen
   }
 }
-
+/** A hdfs store, which can be used to read a partition with
+ * any of various pushdowns.
+ *
+ * @param schema to apply to this store
+ * @param params the parameters such as endpoint, etc.
+ * @param filters the filters to pushdown to endpoint
+ * @param prunedSchema
+ * @param pushedAggregation
+ */
 class HdfsStoreCSV(var schema: StructType,
                    params: java.util.Map[String, String],
                    filters: Array[Filter],
                    var prunedSchema: StructType,
                    pushedAggregation: Aggregation)
-  extends HdfsStore(schema, params, filters, prunedSchema, 
+  extends HdfsStore(schema, params, filters, prunedSchema,
                     pushedAggregation) {
 
   override def toString() : String = "HdfsStoreCSV" + params + filters.mkString(", ")
 
+  /** Returns the offset in bytes to start reading
+   *   an hdfs partition.
+   *  This takes into account any prior lines that might be incomplete
+   *  from the prior partition.
+   *
+   * @param partition the partition to find start for
+   * @return offset to begin reading partition
+   */
   @throws(classOf[Exception])
   def getStartOffset(partition: HdfsPartition) : Long = {
     val filePath = new Path(endpoint + "/" + partition.name)
-    if (partition.offset == 0) {
-        0
-    } else {
-        /* When we are not the first partition, 
-         * read the end of the last partition and find the prior line break.
-         * The prior partition will stop at the end of the partition and discard
-         * the partial line.  This partition will include that prior line.
-         */
-        val partitionBytes = 1024
-        val priorBytes = 1024
-        var lineEnd: Long = -1
-        val bufferBytes =
-          if (partition.length > partitionBytes) {
-              priorBytes + partitionBytes
-          } else {
-              (priorBytes + partition.length.asInstanceOf[Int])
-          }
-        val buffer = new Array[Byte](bufferBytes)
-        val inStrm = fileSystem.open(filePath)
-        inStrm.seek(partition.offset)
-        inStrm.readFully(partition.offset - priorBytes, buffer)
-        for (i <- priorBytes to 0 by -1) {
-            if (buffer(i) == '\n') {
-                lineEnd = partition.offset - (priorBytes.asInstanceOf[Long] - (i.asInstanceOf[Long] + 1))
-                return lineEnd
-            }
+    if (partition.offset == 0) 0 else {
+      /* When we are not the first partition,
+       * read the end of the last partition and find the prior line break.
+       * The prior partition will stop at the end of the partition and discard
+       * the partial line.  This partition will include that prior line.
+       */
+      val partitionBytes = 1024
+      val priorBytes = 1024
+      var lineEnd = -1
+      val bufferBytes = {
+        if (partition.length > partitionBytes) {
+          priorBytes + partitionBytes
+        } else
+          priorBytes + partition.length.asInstanceOf[Int]
+      }
+      val buffer = new Array[Byte](bufferBytes)
+      val inStrm = fileSystem.open(filePath)
+      inStrm.seek(partition.offset)
+      inStrm.readFully(partition.offset - priorBytes, buffer)
+      for (i <- priorBytes to 0 by -1) {
+        if (buffer(i) == '\n') {
+          return partition.offset - (priorBytes.asInstanceOf[Long] - (i.asInstanceOf[Long] + 1))
         }
-        if (lineEnd == -1) {
-            throw new Exception("line end not found")
-        }
-        lineEnd
+      }
+      if (lineEnd == -1) throw new Exception("line end not found")
+      lineEnd
     }
   }
+  /** Returns a reader for a given Hdfs partition.
+   *  Determines the correct start offset by looking backwards
+   *  to find the end of the prior line.
+   *  Helps in cases where the last line of the prior partition
+   *  was split on the partition boundary.  In that case, the
+   *  prior partition's last (incomplete) is included in the next partition.
+   *
+   * @param partition the partition to read
+   * @return a new BufferedReader for this partition.
+   */
   def getReader(partition: HdfsPartition): BufferedReader = {
     val filePath = new Path(endpoint + "/" + partition.name)
     val inStrm = fileSystem.open(filePath)
@@ -166,6 +225,11 @@ class HdfsStoreCSV(var schema: StructType,
     val partitionLength = (partition.offset + partition.length) - startOffset
     new BufferedReader(new InputStreamReader(new BoundedInputStream(inStrm, partitionLength)))
   }
+  /** Returns an Iterator over InternalRow for a given Hdfs partition.
+   *
+   * @param partition the partition to read
+   * @return a new CsvRowIterator for this partition.
+   */
   def getRowIter(partition: HdfsPartition): Iterator[InternalRow] = {
     new CSVRowIterator(getReader(partition), readSchema)
   }

@@ -31,6 +31,14 @@ import org.apache.spark.sql.sources.Aggregation
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types._
 
+/** A scan object that works on HDFS files.
+ *
+ * @param schema the column format
+ * @param options the options including "path"
+ * @param filters the array of filters to push down
+ * @param prunedSchema the new array of columns after pruning
+ * @param pushedAggregation the array of aggregations to push down
+ */
 class HdfsScan(schema: StructType,
                options: util.Map[String, String],
                filters: Array[Filter], prunedSchema: StructType,
@@ -66,6 +74,14 @@ class HdfsScan(schema: StructType,
     logger.info(a.mkString(" "))
     a.toArray
   }
+  /** Returns an Array of S3Partitions for a given input file.
+   *  the file is selected by options("path").
+   *  If there is one file, then we will generate multiple partitions
+   *  on that file if large enough.
+   *  Otherwise we generate one partition per file based partition.
+   *
+   * @return array of S3Partitions
+   */
   private def getPartitions(): Array[InputPartition] = {
     var store: HdfsStore = HdfsStoreFactory.getStore(schema, options,
                                                      filters, prunedSchema,
@@ -84,11 +100,19 @@ class HdfsScan(schema: StructType,
                                        pushedAggregation)
 }
 
+/** Creates a factory for creating HdfsPartitionReader objects
+ *
+ * @param schema the column format
+ * @param options the options including "path"
+ * @param filters the array of filters to push down
+ * @param prunedSchema the new array of columns after pruning
+ * @param pushedAggregation the array of aggregations to push down
+ */
 class HdfsPartitionReaderFactory(schema: StructType,
-                               options: util.Map[String, String],
-                               filters: Array[Filter],
-                               prunedSchema: StructType,
-                               pushedAggregation: Aggregation)
+                                 options: util.Map[String, String],
+                                 filters: Array[Filter],
+                                 prunedSchema: StructType,
+                                 pushedAggregation: Aggregation)
   extends PartitionReaderFactory {
   private val logger = LoggerFactory.getLogger(getClass)
   logger.trace("Created")
@@ -99,6 +123,15 @@ class HdfsPartitionReaderFactory(schema: StructType,
   }
 }
 
+/** PartitionReader of HdfsPartitions
+ *
+ * @param schema the column format
+ * @param options the options including "path"
+ * @param filters the array of filters to push down
+ * @param prunedSchema the new array of columns after pruning
+ * @param partition the HdfsPartition to read from
+ * @param pushedAggregation the array of aggregations to push down
+ */
 class HdfsPartitionReader(schema: StructType,
                           options: util.Map[String, String],
                           filters: Array[Filter],

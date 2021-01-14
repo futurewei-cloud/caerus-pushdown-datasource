@@ -32,6 +32,10 @@ import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 
+/** Creates a data source object for Spark that
+ *  supports pushdown of predicates such as Filter, Project and Aggregate.
+ *
+ */
 class DefaultSource extends TableProvider
   with SessionConfigSupport with DataSourceRegister {
 
@@ -57,6 +61,15 @@ class DefaultSource extends TableProvider
   override def shortName(): String = "pushdownDatasource"
 }
 
+/** Creates a Table object that supports pushdown predicates
+ *   such as Filter, Project, and Aggregate.
+ *
+ * @param schema the StructType format of this table
+ * @param options the parameters for creating the table
+ *                "endpoint" is the server name,
+ *                "accessKey" and "secretKey" are the credentials for above server.
+ *                 "path" is the full path to the s3 file.
+ */
 class PushdownBatchTable(schema: StructType,
                          options: util.Map[String, String])
   extends Table with SupportsRead {
@@ -74,35 +87,47 @@ class PushdownBatchTable(schema: StructType,
       new PushdownScanBuilder(schema, options)
 }
 
-
+/** Creates a builder for scan objects.
+ *  For s3 we build the S3Scan, and for hdfs HdfsScan.
+ *
+ * @param schema the format of the columns
+ * @param options the options (see PushdownBatchTable for full list.)
+ */
 class PushdownScanBuilder(schema: StructType,
                           options: util.Map[String, String])
-  extends ScanBuilder 
-    with SupportsPushDownFilters 
-    with SupportsPushDownRequiredColumns 
+  extends ScanBuilder
+    with SupportsPushDownFilters
+    with SupportsPushDownRequiredColumns
     with SupportsPushDownAggregates {
 
   private val logger = LoggerFactory.getLogger(getClass)
-  
   var pushedFilter: Array[Filter] = new Array[Filter](0)
   private var prunedSchema: StructType = schema
   private var pushedAggregations = Aggregation(Seq.empty[AggregateFunc], Seq.empty[String])
 
   logger.trace("Created")
 
+  /** Returns a scan object for this particular query.
+   *   Currently we only support S3 and Hdfs.
+   *
+   * @return the scan object either a S3Scan or HdfsScan
+   */
   override def build(): Scan = {
     if (options.get("path").contains("s3a")) {
-      new S3Scan(schema, options, 
+      new S3Scan(schema, options,
                  pushedFilter, prunedSchema, pushedAggregations)
     } else {
       if (!options.get("path").contains("hdfs")) {
         throw new Exception(s"endpoint ${options.get("endpoint")} is unexpected")
       }
-      new HdfsScan(schema, options,     
+      new HdfsScan(schema, options,
                    pushedFilter, prunedSchema, pushedAggregations)
     }
   }
-
+  /** Pushes down the list of columns specified by requiredSchema
+   *
+   * @param requiredSchema the list of coumns we should use, and prune others.
+   */
   override def pruneColumns(requiredSchema: StructType): Unit = {
     if (!options.containsKey("DisableProjectPush")) {
       prunedSchema = requiredSchema
@@ -115,6 +140,12 @@ class PushdownScanBuilder(schema: StructType,
     pushedFilter
   }
 
+  /** Pushes down a list of filters.  We assume the filters
+   *  are "and" separated. e.g. filter1 and filter2 and filter3, etc.
+   *
+   * @param filters the list of fitlers to push down
+   * @return list of filters to be re-evaluated upon completion of query.
+   */
   override def pushFilters(filters: Array[Filter]): Array[Filter] = {
     logger.trace("pushFilters" + filters.toList)
     if (options.containsKey("DisableFilterPush")) {
@@ -134,6 +165,12 @@ class PushdownScanBuilder(schema: StructType,
     }
   }
 
+  /** Will push down a list of aggregates to be saved and sent to
+   *  the endpoint on all reads.
+   *  Note that "DisableAggregatePush" option will prevent any pushes.
+   * @param aggregation list of aggreates, assupmtion is that
+   *                    these are "and" separated.
+   */
   override def pushAggregation(aggregation: Aggregation): Unit = {
     if (!options.containsKey("DisableAggregatePush") &&
         (!Pushdown.compileAggregates(aggregation.aggregateExpressions).isEmpty) ) {

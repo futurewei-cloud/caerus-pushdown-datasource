@@ -29,12 +29,22 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types._
 
+/** Iterator object that allows for parsing
+ *  csv rows into InternalRow structures.
+ *
+ * @param rowReader the bufferedReader to fetch data
+ * @param schema the format of this stream of data
+ */
 class CSVRowIterator(rowReader: BufferedReader,
                      schema: StructType)
   extends Iterator[InternalRow] {
 
   private val logger = LoggerFactory.getLogger(getClass)
-
+  /** Returns an InternalRow parsed from the input line.
+   *
+   * @param line the String of line to parse
+   * @return the InternalRow of this line..
+   */
   private def parseLine(line: String): InternalRow = {
     var row = new Array[Any](schema.fields.length)
     var value: String = ""
@@ -99,10 +109,18 @@ class CSVRowIterator(rowReader: BufferedReader,
     InternalRow.fromSeq(row.toSeq)
   } */
 
+  /** Returns the next row or if none, InternalRow.empty.
+   *
+   * @return InternalRow for the next row.
+   */
   private var nextRow: InternalRow = {
     val firstRow = getNextRow()
     firstRow
   }
+  /** Returns row following the current one
+   *
+   * @return the next InternalRow object or InternalRow.empty if none.
+   */
   private def getNextRow(): InternalRow = {
     var line: String = null
     if ({line = rowReader.readLine(); line == null}) {
@@ -111,15 +129,21 @@ class CSVRowIterator(rowReader: BufferedReader,
       parseLine(line)
     }
   }
+  /** Returns true if there are remaining rows.
+   *
+   * @return true if rows remaining, false otherwise.
+   */
   override def hasNext: Boolean = {
     nextRow.numFields > 0
   }
-
+  /** Returns the following InternalRow
+   *
+   * @return the next InternalRow or InternalRow.empty if none.
+   */
   override def next: InternalRow = {
     val row = nextRow
     nextRow = getNextRow()
     row
   }
-
   def close(): Unit = Unit
 }

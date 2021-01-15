@@ -1,9 +1,9 @@
-name := "s3datasource"
+name := "pushdown-datasource"
 
 organization := ""
 version := "0.1.0"
-// githubOwner := "rf972"
-// githubRepository := "s3datasource"
+// githubOwner := "?"
+// githubRepository := "pushdown-datasource"
 // githubTokenSource := TokenSource.Environment("GITHUB_TOKEN")
 
 // pushRemoteCacheConfiguration := pushRemoteCacheConfiguration.value.withOverwrite(true)
@@ -28,21 +28,21 @@ libraryDependencies ++= Seq(
   "org.apache.spark" %% "spark-sql" % sparkVersion,
   "org.scala-lang" % "scala-library" % scalaVersion.value % "compile",
 )
-// githubOwner := "rf972"
-// githubRepository := "s3datasource"
+// githubOwner := "?"
+// githubRepository := "pushdown-datasource"
 // credentials += Credentials(
 //           "GitHub Package Registry",
 //           "maven.pkg.github.com",
 //           //sys.env.get("GITHUB_ACTOR").getOrElse("N/A"),
-//          "rf972",
+//          "?",
 //          sys.env.getOrElse("GITHUB_TOKEN", "c164a97693d4694b8b4a05477f154dfc2ea0eafb")        
 //        )
 // githubTokenSource := Some(TokenSource.GitConfig("token"))
 
 
 // val GlobalSettingsGroup: Seq[Setting[_]] = Seq(
-//      githubOwner := "rf972",
-//      githubRepository := "s3datasource",
+//      githubOwner := "?",
+//      githubRepository := "pushdown-datasource",
 //      credentials +=
 //        Credentials(
 //          "GitHub Package Registry",

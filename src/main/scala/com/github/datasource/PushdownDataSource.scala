@@ -21,9 +21,11 @@ import java.util
 import scala.collection.JavaConverters._
 
 import com.github.datasource.store.Pushdown
+import com.github.datasource.store.{S3Store, HdfsStore}
 import org.slf4j.LoggerFactory
 
-import org.apache.spark.sql.connector.catalog.{SessionConfigSupport, SupportsRead, Table, TableCapability, TableProvider}
+import org.apache.spark.sql.connector.catalog.{SessionConfigSupport, SupportsRead,
+                                               Table, TableCapability, TableProvider}
 import org.apache.spark.sql.connector.expressions.Transform
 import org.apache.spark.sql.connector.read._
 import org.apache.spark.sql.sources.DataSourceRegister
@@ -124,12 +126,26 @@ class PushdownScanBuilder(schema: StructType,
                    pushedFilter, prunedSchema, pushedAggregations)
     }
   }
+  /** returns true if pushdowns are supported for this type of connector.
+   *
+   * @return true if pushdown supported, false otherwise
+   */
+  private def pushdownSupported(): Boolean = {
+    if (options.get("path").contains("s3a")) {
+      S3Store.pushdownSupported(options)
+    } else {
+      if (!options.get("path").contains("hdfs")) {
+        throw new Exception(s"path ${options.get("path")} is unexpected")
+      }
+      HdfsStore.pushdownSupported(options)
+    }
+  }
   /** Pushes down the list of columns specified by requiredSchema
    *
    * @param requiredSchema the list of coumns we should use, and prune others.
    */
   override def pruneColumns(requiredSchema: StructType): Unit = {
-    if (!options.containsKey("DisableProjectPush")) {
+    if (pushdownSupported() && !options.containsKey("DisableProjectPush")) {
       prunedSchema = requiredSchema
       logger.info("pruneColumns " + requiredSchema.toString)
     }
@@ -148,7 +164,7 @@ class PushdownScanBuilder(schema: StructType,
    */
   override def pushFilters(filters: Array[Filter]): Array[Filter] = {
     logger.trace("pushFilters" + filters.toList)
-    if (options.containsKey("DisableFilterPush")) {
+    if (!pushdownSupported() || options.containsKey("DisableFilterPush")) {
       filters
     } else {
       val f = filters.map(f => Pushdown.buildFilterExpression(schema, f))
@@ -172,7 +188,8 @@ class PushdownScanBuilder(schema: StructType,
    *                    these are "and" separated.
    */
   override def pushAggregation(aggregation: Aggregation): Unit = {
-    if (!options.containsKey("DisableAggregatePush") &&
+    if (pushdownSupported() &&
+        !options.containsKey("DisableAggregatePush") &&
         (!Pushdown.compileAggregates(aggregation.aggregateExpressions).isEmpty) ) {
       pushedAggregations = aggregation
     }

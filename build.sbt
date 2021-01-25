@@ -20,12 +20,10 @@ libraryDependencies ++= Seq(
   "org.slf4j" % "slf4j-api" % "1.7.30" % "provided",
   "org.mockito" % "mockito-core" % "2.0.31-beta",
  )
-
+libraryDependencies += "org.scala-lang.modules" %% "scala-xml" % "2.0.0-M3"
 libraryDependencies += "org.scalatest" %% "scalatest" % "3.2.2" % "test"
 
 libraryDependencies ++= Seq(
-  "org.apache.spark" %% "spark-core" % sparkVersion,
-  "org.apache.spark" %% "spark-sql" % sparkVersion,
   "org.scala-lang" % "scala-library" % scalaVersion.value % "compile",
 )
 // githubOwner := "?"

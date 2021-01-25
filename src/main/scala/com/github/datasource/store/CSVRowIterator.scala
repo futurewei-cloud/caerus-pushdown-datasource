@@ -23,7 +23,7 @@ import java.util
 import scala.collection.JavaConverters._
 
 import org.slf4j.LoggerFactory
-import com.univocity.parsers.csv._
+//import com.univocity.parsers.csv._
 
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.sources._
@@ -50,6 +50,7 @@ class CSVRowIterator(rowReader: BufferedReader,
     var value: String = ""
     var index = 0
     var fieldStart = 0
+    // println("parseLine: " + line)
     while (index < schema.fields.length && fieldStart < line.length) {
       if (line(fieldStart) != '\"') {
         var fieldEnd = line.substring(fieldStart).indexOf(",")

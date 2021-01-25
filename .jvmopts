@@ -1,4 +1,0 @@
--Dsbt.global.base=/pushdown-datasource/pushdown-datasource/build/sbt/ 
--Dsbt.ivy.home=/pushdown-d3datasource/pushdown-datasource/build/ivy2/ 
--Divy.home=/pushdown-datasource/pushdown-datasource/build/ivy2/ 
--Dsbt.coursier.home=/pushdown-datasource/pushdown-datasource/build/coursier/

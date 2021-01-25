@@ -115,16 +115,6 @@ object Pushdown {
       None
     }
   }
-  private def buildObjectClause(partition: S3Partition): String = {
-    // Treat this as the one and only partition.
-    // Some sources like minio can't handle partitions, so this
-    // gives us a way to be compatible with them.
-    if (partition.onlyPartition) {
-      "S3Object"
-    } else {
-      s"""(SELECT * FROM S3Object LIMIT ${partition.numRows} OFFSET ${partition.rowOffset})"""
-    }
-  }
   def quoteIdentifier(colName: String): String = {
     s""""$colName""""
   }
@@ -347,7 +337,7 @@ object Pushdown {
                       columns: String,
                       filters: Array[Filter],
                       aggregation: Aggregation,
-                      partition: S3Partition): String = {
+                      partition: PushdownPartition): String = {
     var columnList = prunedSchema.fields.map(x => s"s." + s""""${x.name}"""").mkString(",")
 
     if (columns.length > 0) {
@@ -356,7 +346,7 @@ object Pushdown {
       columnList = "*"
     }
     val whereClause = buildWhereClause(schema, filters)
-    val objectClause = buildObjectClause(partition)
+    val objectClause = partition.getObjectClause(partition)
     var retVal = ""
     val groupByClause = getGroupByClause(aggregation)
     if (whereClause.length == 0) {
@@ -364,8 +354,27 @@ object Pushdown {
     } else {
       retVal = s"SELECT $columnList FROM $objectClause s $whereClause $groupByClause"
     }
-    logger.info(s"""SQL Query partition(${partition.index}:${partition.key}):
+    logger.info(s"""SQL Query partition (${partition.toString}):
                  |${retVal}""".stripMargin);
     retVal
+  }
+  /** Returns a string to represent the schema of the table.
+   *
+   * @param schema the StructType representing the definition of columns.
+   * @return String representing the table's columns.
+   */
+  def schemaString(schema: StructType): String = {
+    
+    schema.fields.map(x => {
+      val dataTypeString = {
+        x.dataType match {
+        case IntegerType => "INTEGER"
+        case LongType => "LONG"
+        case DoubleType => "NUMERIC"
+        case _ => "STRING"
+        }
+      }
+      s"${x.name} ${dataTypeString}"
+    }).mkString(", ")
   }
 }

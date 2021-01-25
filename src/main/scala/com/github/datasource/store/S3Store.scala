@@ -537,3 +537,22 @@ object S3StoreCSV {
   def resetTransferLength : Unit = { currentTransferLength = 0 }
   def getTransferLength : Double = { currentTransferLength }
 }
+
+/** Related routines for the S3 connector.
+ *
+ */
+object S3Store {
+  /** Returns true if pushdown is supported by this flavor of
+   *  filesystem represented by a string of "filesystem://filename".
+   *
+   * @param options map containing "path".
+   * @return true if pushdown supported, false otherwise.
+   */
+  def pushdownSupported(options: util.Map[String, String]): Boolean = {
+    if (options.get("path").contains("s3a://")) {
+      true
+    } else {
+      false
+    }
+  } 
+}

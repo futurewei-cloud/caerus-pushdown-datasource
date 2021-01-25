@@ -33,14 +33,30 @@ class S3Partition(var index: Int,
                   var onlyPartition: Boolean = true,
                   var bucket: String = "",
                   var key: String = "")
-  extends Partition with InputPartition {
+  extends Partition with InputPartition with PushdownPartition {
 
   override def toString() : String = {
-    s"""S3Partition index ${index} rowOffset: ${rowOffset} numRows: ${numRows} """ +
-    s"""onlyPartition: ${onlyPartition} bucket: ${bucket} key: ${key}"""
+    s"""S3Partition index ${index} bucket: ${bucket} key: ${key}"""
   }
 
   override def preferredLocations(): Array[String] = {
     Array("localhost")
+  }
+  /** Returns the query clause needed to target this specific partition.
+   *
+   *  @param partition the S3Partition that is being targeted.
+   *
+   *  @return String the query clause for use on this partition.
+   */
+  override def getObjectClause(partition: PushdownPartition): String = {
+    val part = partition.asInstanceOf[S3Partition]
+    // Treat this as the one and only partition.
+    // Some sources like minio can't handle partitions, so this
+    // gives us a way to be compatible with them.
+    if (part.onlyPartition) {
+      "S3Object"
+    } else {
+      s"""(SELECT * FROM S3Object LIMIT ${part.numRows} OFFSET ${part.rowOffset})"""
+    }
   }
 }

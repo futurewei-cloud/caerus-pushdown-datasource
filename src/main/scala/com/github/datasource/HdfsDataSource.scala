@@ -86,7 +86,7 @@ class HdfsScan(schema: StructType,
     var store: HdfsStore = HdfsStoreFactory.getStore(schema, options,
                                                      filters, prunedSchema,
                                                      pushedAggregation)
-    val fileName = options.get("path").replace("hdfs://", "")                                                 
+    val fileName = store.filePath                                              
     val blocks : Array[BlockLocation] = store.getBlockList(fileName)
     createPartitions(blocks, fileName, store)
   }

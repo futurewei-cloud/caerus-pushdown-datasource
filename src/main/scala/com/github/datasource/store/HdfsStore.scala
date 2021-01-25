@@ -34,6 +34,9 @@ import org.apache.hadoop.hdfs.web.WebHdfsFileSystem
 import org.apache.hadoop.fs.BlockLocation
 import org.apache.hadoop.fs.Path
 import org.apache.hadoop.fs.FileSystem
+import org.apache.hadoop.fs.FSDataInputStream
+import org.apache.hadoop.hdfs.web.DikeHdfsFileSystem
+import org.apache.hadoop.hdfs.web.TokenAspect
 import org.slf4j.LoggerFactory
 
 import org.apache.spark.rdd.RDD
@@ -75,8 +78,7 @@ object HdfsStoreFactory {
   }
 }
 /** An abstract hdfs store object which can connect
- *  to an hdfs endpoint, specified by params("endpoint")
- *  Other parameters are parmas("path")
+ *  to a file on hdfs filesystem, specified by params("path")
  *
  * @param schema the StructType schema to construct store with.
  * @param params the parameters including those to construct the store
@@ -90,11 +92,30 @@ abstract class HdfsStore(schema: StructType,
                          prunedSchema: StructType,
                          pushedAggregation: Aggregation) {
 
-  protected var path = params.get("path")
-  protected var endpoint = "webhdfs://" + params.get("endpoint") + ":9870"
+  protected val path = params.get("path")
+  protected val endpoint = {
+    val server = path.split("/")(2)
+    if (path.contains("dikehdfs://")) {
+      ("dikehdfs://" + server + ":9860")
+    } else if (path.contains("webhdfs://")) {
+      ("webhdfs://" + server + ":9870")
+    } else {
+      ("hdfs://" + server + ":9000")
+    }
+  }
+  val filePath = {
+    val server = path.split("/")(2)
+    if (path.contains("dikehdfs://")) {
+      val str = path.replace("dikehdfs://" + server, "dikehdfs://" + server + ":9860")
+      str
+    } else if (path.contains("webhdfs")) {
+      path.replace(server, server + ":9870")
+    } else {
+      path.replace(server, server + ":9000")
+    }
+  }
   protected val logger = LoggerFactory.getLogger(getClass)
-  logger.trace("Hdfs Created")
-  // SocketTImeout (24 * 3600 * 1000)
+  // SocketTimeout (24 * 3600 * 1000)
   protected val (readColumns: String,
                  readSchema: StructType) = {
     var (columns, updatedSchema) = 
@@ -102,20 +123,62 @@ abstract class HdfsStore(schema: StructType,
     (columns,
      if (updatedSchema.names.isEmpty) schema else updatedSchema)
   }
-  protected val fileSystem: WebHdfsFileSystem = {
+  protected val fileSystem = {
     val conf = new Configuration()
-    val hdfsCoreSitePath = new Path("/home/rob/config/core-client.xml")
     conf.set("dfs.datanode.drop.cache.behind.reads", "true")
     conf.set("dfs.client.cache.readahead", "0")
-    conf.addResource(hdfsCoreSitePath)
-    FileSystem.get(URI.create(endpoint), conf)
-                   .asInstanceOf[WebHdfsFileSystem]
+    conf.set("fs.dikehdfs.impl", classOf[org.apache.hadoop.hdfs.web.DikeHdfsFileSystem].getName)
+
+    if (path.contains("http://dikehdfs")) {
+      val fs = FileSystem.get(URI.create(endpoint), conf)
+      fs.asInstanceOf[DikeHdfsFileSystem]
+    } else {
+      FileSystem.get(URI.create(endpoint), conf)
+    }
   }
-  def getReader(partition: HdfsPartition): BufferedReader;
+  protected val fileSystemType = fileSystem.getScheme
+
+  /** Returns a reader for a given Hdfs partition.
+   *  Determines the correct start offset by looking backwards
+   *  to find the end of the prior line.
+   *  Helps in cases where the last line of the prior partition
+   *  was split on the partition boundary.  In that case, the
+   *  prior partition's last (incomplete) is included in the next partition.
+   *
+   * @param partition the partition to read
+   * @return a new BufferedReader for this partition.
+   */
+  def getReader(partition: HdfsPartition, startOffset: Long = 0): BufferedReader = {
+    val filePath = new Path(partition.name)
+    val readParam = {
+      if (fileSystemType != "dikehdfs" || params.containsKey("DisableDikeProcessor")) {
+        ""
+      } else {
+        val (requestQuery, requestSchema) =  {
+          if (fileSystemType == "dikehdfs") {
+            (Pushdown.queryFromSchema(schema, readSchema, readColumns,
+                                      filters, pushedAggregation, partition),
+            Pushdown.schemaString(schema))
+          } else {
+            ("", "")
+          }
+        }
+        new ProcessorRequest(requestSchema, requestQuery).toXml
+      }
+    }
+    val inStrm = {
+      if (fileSystemType == "dikehdfs" && !params.containsKey("DisableDikeProcessor")) {
+        val fs = fileSystem.asInstanceOf[DikeHdfsFileSystem]
+        fs.open(filePath, 4096, readParam).asInstanceOf[FSDataInputStream]
+      } else {
+        fileSystem.open(filePath)
+      }
+    }
+    inStrm.seek(startOffset)
+    val partitionLength = (partition.offset + partition.length) - startOffset
+    new BufferedReader(new InputStreamReader(new BoundedInputStream(inStrm, partitionLength)))
+  }
   def getRowIter(partition: HdfsPartition): Iterator[InternalRow];
-  def getFilePath(fileName: String) : String = {  
-    endpoint + "/" + fileName.replace("hdfs://", "")
-  }
 
   /** Returns a list of BlockLocation object representing
    *  all the hdfs blocks in a file.
@@ -124,11 +187,12 @@ abstract class HdfsStore(schema: StructType,
    * @return BlockLocation objects for the file
    */
   def getBlockList(fileName: String) : Array[BlockLocation] = {
-    val fileToRead = new Path(endpoint + "/" + fileName)
+    val fileToRead = new Path(fileName)
     val fileStatus = fileSystem.getFileStatus(fileToRead)
-    println(fileStatus)
+
+    // Use MaxValue to indicate we want info on all blocks. 
     val fileBlocks: Array[BlockLocation] = 
-      fileSystem.getFileBlockLocations(fileToRead, 0, fileStatus.getLen())
+      fileSystem.getFileBlockLocations(fileToRead, 0, Long.MaxValue)
 
     /* for (block <- fileBlocks) {
       val names = block.getNames
@@ -144,7 +208,7 @@ abstract class HdfsStore(schema: StructType,
    * @return byte length of the file.
    */
   def getLength(fileName: String) : Long = {
-    val fileToRead = new Path(endpoint + "/" + fileName)
+    val fileToRead = new Path(filePath)
     val fileStatus = fileSystem.getFileStatus(fileToRead)
     fileStatus.getLen
   }
@@ -178,7 +242,11 @@ class HdfsStoreCSV(var schema: StructType,
    */
   @throws(classOf[Exception])
   def getStartOffset(partition: HdfsPartition) : Long = {
-    val filePath = new Path(endpoint + "/" + partition.name)
+    if (fileSystemType == "dikehdfs") {
+      // No need to find offset, dike server does this under the covers for us.
+      return 0
+    }
+    val currentPath = new Path(filePath)
     if (partition.offset == 0) 0 else {
       /* When we are not the first partition,
        * read the end of the last partition and find the prior line break.
@@ -195,7 +263,7 @@ class HdfsStoreCSV(var schema: StructType,
           priorBytes + partition.length.asInstanceOf[Int]
       }
       val buffer = new Array[Byte](bufferBytes)
-      val inStrm = fileSystem.open(filePath)
+      val inStrm = fileSystem.open(currentPath)
       inStrm.seek(partition.offset)
       inStrm.readFully(partition.offset - priorBytes, buffer)
       for (i <- priorBytes to 0 by -1) {
@@ -207,30 +275,33 @@ class HdfsStoreCSV(var schema: StructType,
       lineEnd
     }
   }
-  /** Returns a reader for a given Hdfs partition.
-   *  Determines the correct start offset by looking backwards
-   *  to find the end of the prior line.
-   *  Helps in cases where the last line of the prior partition
-   *  was split on the partition boundary.  In that case, the
-   *  prior partition's last (incomplete) is included in the next partition.
-   *
-   * @param partition the partition to read
-   * @return a new BufferedReader for this partition.
-   */
-  def getReader(partition: HdfsPartition): BufferedReader = {
-    val filePath = new Path(endpoint + "/" + partition.name)
-    val inStrm = fileSystem.open(filePath)
-    val startOffset = getStartOffset(partition)
-    inStrm.seek(startOffset)
-    val partitionLength = (partition.offset + partition.length) - startOffset
-    new BufferedReader(new InputStreamReader(new BoundedInputStream(inStrm, partitionLength)))
-  }
   /** Returns an Iterator over InternalRow for a given Hdfs partition.
    *
    * @param partition the partition to read
    * @return a new CsvRowIterator for this partition.
    */
   def getRowIter(partition: HdfsPartition): Iterator[InternalRow] = {
-    new CSVRowIterator(getReader(partition), readSchema)
+    new CSVRowIterator(getReader(partition, getStartOffset(partition)), readSchema)
   }
+}
+
+/** Related routines for the HDFS connector.
+ *
+ */
+object HdfsStore {
+
+  /** Returns true if pushdown is supported by this flavor of
+   *  filesystem represented by a string of "filesystem://filename".
+   *
+   * @param options map containing "path".
+   * @return true if pushdown supported, false otherwise.
+   */
+  def pushdownSupported(options: util.Map[String, String]): Boolean = {
+    if (options.get("path").contains("dikehdfs://")) {
+      true
+    } else {
+      // other filesystems like hdfs and webhdfs do not support pushdown.
+      false
+    }
+  }  
 }

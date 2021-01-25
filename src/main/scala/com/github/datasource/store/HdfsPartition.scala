@@ -30,7 +30,7 @@ class HdfsPartition(var index: Int,
                     var offset: Long = 0,
                     var length: Long = 0,
                     var name: String = "")
-  extends Partition with InputPartition {
+  extends Partition with InputPartition with PushdownPartition {
 
   override def toString() : String = {
     s"""HdfsPartition index ${index} offset: ${offset} length: ${length} """ +
@@ -39,5 +39,15 @@ class HdfsPartition(var index: Int,
 
   override def preferredLocations(): Array[String] = {
     Array("localhost")
+  }
+  /** Returns the query clause needed to target this specific partition.
+   *
+   *  @param partition the S3Partition that is being targeted.
+   *
+   *  @return String the query clause for use on this partition.
+   */
+  override def getObjectClause(partition: PushdownPartition): String = {
+    val part = partition.asInstanceOf[HdfsPartition]
+    "S3Object"
   }
 }

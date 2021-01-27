@@ -48,7 +48,6 @@ import com.amazonaws.services.s3.model.SelectRecordsInputStream
 import com.github.datasource.common.Pushdown
 import com.github.datasource.common.Select
 import com.github.datasource.common.TypeCast
-import com.github.datasource.store.CSVRowIterator
 
 import org.apache.commons.csv._
 import org.apache.commons.io.IOUtils
@@ -66,6 +65,7 @@ import org.apache.spark.sql.sources.{Aggregation, Filter}
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 import org.apache.spark.unsafe.types.UTF8String
+import com.github.datasource.parse.RowIteratorFactory
 
 /** A Factory to fetch the correct type of
  *  store object depending on the expected output type
@@ -284,7 +284,9 @@ class S3StoreCSV(var schema: StructType,
    * @return a new CsvRowIterator for this partition.
    */
   def getRowIter(partition: S3Partition): Iterator[InternalRow] = {
-    new CSVRowIterator(getReader(partition), readSchema)
+    RowIteratorFactory.getIterator(getReader(partition),
+                                   readSchema,
+                                   params.get("format"))
   }
   override def getRows(partition: S3Partition): ArrayBuffer[InternalRow] = {
     val numRows = getNumRows()
@@ -383,7 +385,9 @@ class S3StoreJSON(schema: StructType,
   }
   // TBD for JSON, stubbed out for now.
   def getRowIter(partition: S3Partition): Iterator[InternalRow] = {
-    new CSVRowIterator(getReader(partition), readSchema)
+    RowIteratorFactory.getIterator(getReader(partition),
+                                   readSchema,
+                                   params.get("format"))
   }
   override def getRows(partition: S3Partition): ArrayBuffer[InternalRow] = {
     var records = new ArrayBuffer[InternalRow]
@@ -477,7 +481,9 @@ class S3StoreParquet(schema: StructType,
   }
   // TBD for parquet, stubbed out for now.
   def getRowIter(partition: S3Partition): Iterator[InternalRow] = {
-    new CSVRowIterator(getReader(partition), readSchema)
+    RowIteratorFactory.getIterator(getReader(partition),
+                                   readSchema,
+                                   params.get("format"))
   }
   override def getRows(partition: S3Partition): ArrayBuffer[InternalRow] = {
     var records = new ArrayBuffer[InternalRow]

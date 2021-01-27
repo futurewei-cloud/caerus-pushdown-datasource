@@ -47,7 +47,7 @@ import org.apache.spark.sql.catalyst.encoders.RowEncoder
 import org.apache.spark.sql.connector.read._
 import org.apache.spark.sql.sources.{Aggregation, Filter}
 import org.apache.spark.sql.types._
-import com.github.datasource.parse._
+import com.github.datasource.parse.RowIteratorFactory
 
 import com.github.datasource.common.Pushdown
 

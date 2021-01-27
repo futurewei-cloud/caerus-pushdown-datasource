@@ -28,6 +28,7 @@ import org.slf4j.LoggerFactory
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types._
+import com.github.datasource.common.TypeCast
 
 /** Iterator object that allows for parsing
  *  csv rows into InternalRow structures.

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 // scalastyle:on
-package com.github.datasource.store
+package com.github.datasource.s3
 
 import java.io.BufferedReader
 import java.io.InputStream
@@ -45,6 +45,10 @@ import com.amazonaws.services.s3.model.S3ObjectSummary
 import com.amazonaws.services.s3.model.SelectObjectContentEvent
 import com.amazonaws.services.s3.model.SelectObjectContentEventVisitor
 import com.amazonaws.services.s3.model.SelectRecordsInputStream
+import com.github.datasource.common.Pushdown
+import com.github.datasource.common.Select
+import com.github.datasource.common.TypeCast
+import com.github.datasource.store.CSVRowIterator
 
 import org.apache.commons.csv._
 import org.apache.commons.io.IOUtils
@@ -62,6 +66,7 @@ import org.apache.spark.sql.sources.{Aggregation, Filter}
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 import org.apache.spark.unsafe.types.UTF8String
+
 /** A Factory to fetch the correct type of
  *  store object depending on the expected output type
  *  to be sent back from the store.

@@ -27,7 +27,7 @@ import org.slf4j.LoggerFactory
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types._
-import com.github.datasource.store._
+import com.github.datasource.common.TypeCast
 
 class Delimiters(var fieldDelim: Char,
                  var lineDelim: Char = '\n',

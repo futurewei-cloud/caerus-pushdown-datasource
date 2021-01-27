@@ -14,10 +14,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.github.datasource.store
+package com.github.datasource.s3
 
 import org.apache.spark.Partition
 import org.apache.spark.sql.connector.read.InputPartition
+import com.github.datasource.common.PushdownPartition
 
 /** Represents a partition on an S3 store.
  *

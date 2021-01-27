@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.github.datasource.store
+package com.github.datasource.hdfs
 
 import scala.xml._
 import java.io.StringWriter

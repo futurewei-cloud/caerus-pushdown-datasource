@@ -20,8 +20,9 @@ import java.util
 
 import scala.collection.JavaConverters._
 
-import com.github.datasource.store.Pushdown
-import com.github.datasource.store.{S3Store, HdfsStore}
+import com.github.datasource.common.Pushdown
+import com.github.datasource.hdfs.HdfsStore
+import com.github.datasource.s3.{S3Scan, S3Store}
 import org.slf4j.LoggerFactory
 
 import org.apache.spark.sql.connector.catalog.{SessionConfigSupport, SupportsRead,
@@ -33,6 +34,8 @@ import org.apache.spark.sql.sources.Aggregation
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
+
+import com.github.datasource.hdfs.HdfsScan
 
 /** Creates a data source object for Spark that
  *  supports pushdown of predicates such as Filter, Project and Aggregate.

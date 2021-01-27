@@ -22,7 +22,7 @@
  *   https://github.com/apache/spark/pull/29695
  */
 // scalastyle:on
-package com.github.datasource.store
+package com.github.datasource.common
 
 import java.sql.{Date, Timestamp}
 import java.util.{Locale, StringTokenizer}

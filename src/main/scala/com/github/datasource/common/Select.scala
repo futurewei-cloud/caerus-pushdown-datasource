@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 // scalastyle:on
-package com.github.datasource.store
+package com.github.datasource.common
 
 import com.amazonaws.services.s3.model.CompressionType
 import com.amazonaws.services.s3.model.CSVInput
@@ -36,6 +36,7 @@ import com.amazonaws.services.s3.model.SSECustomerKey
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types._
 
+import com.github.datasource.s3.S3Partition
 /** Utility functions for dealing with forming
  *  S3Select opeations across S3.
  *

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 // scalastyle:on
-package com.github.datasource.store
+package com.github.datasource.s3
 
 import java.net.URI
 

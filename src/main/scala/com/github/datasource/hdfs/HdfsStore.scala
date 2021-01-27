@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 // scalastyle:on
-package com.github.datasource.store
+package com.github.datasource.hdfs
 
 import java.io.BufferedReader
 import java.io.InputStream
@@ -48,6 +48,8 @@ import org.apache.spark.sql.connector.read._
 import org.apache.spark.sql.sources.{Aggregation, Filter}
 import org.apache.spark.sql.types._
 import com.github.datasource.parse._
+
+import com.github.datasource.common.Pushdown
 
 /** A Factory to fetch the correct type of
  *  store object.

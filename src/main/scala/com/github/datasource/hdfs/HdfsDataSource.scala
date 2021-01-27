@@ -14,14 +14,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.github.datasource
+package com.github.datasource.hdfs
 
 import java.util
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.{ArrayBuffer}
 
-import com.github.datasource.store.{HdfsPartition, HdfsStore, HdfsStoreFactory}
 import org.slf4j.LoggerFactory
 
 import org.apache.hadoop.fs.BlockLocation

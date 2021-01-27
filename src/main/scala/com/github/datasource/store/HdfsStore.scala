@@ -47,15 +47,13 @@ import org.apache.spark.sql.catalyst.encoders.RowEncoder
 import org.apache.spark.sql.connector.read._
 import org.apache.spark.sql.sources.{Aggregation, Filter}
 import org.apache.spark.sql.types._
+import com.github.datasource.parse._
 
 /** A Factory to fetch the correct type of
- *  store object depending on the expected output type
- *  to be sent back from the store.
+ *  store object.
  */
 object HdfsStoreFactory {
-  /** Returns the store object which can process
-   *  the input format from params("format").
-   *  Currently only csv is supported.
+  /** Returns the store object.
    *
    * @param schema the StructType schema to construct store with.
    * @param params the parameters including those to construct the store
@@ -69,16 +67,13 @@ object HdfsStoreFactory {
                filters: Array[Filter],
                prunedSchema: StructType,
                pushedAggregation: Aggregation): HdfsStore = {
-
-    var format = params.get("format")
-    format.toLowerCase(Locale.ROOT) match {
-      case "csv" => new HdfsStoreCSV(schema, params, filters, prunedSchema,
-                                   pushedAggregation)
-    }
+    new HdfsStore(schema, params, filters, prunedSchema,
+                  pushedAggregation)
   }
 }
-/** An abstract hdfs store object which can connect
- *  to a file on hdfs filesystem, specified by params("path")
+/** A hdfs store object which can connect
+ *  to a file on hdfs filesystem, specified by params("path"),
+ *  And which can read a partition with any of various pushdowns.
  *
  * @param schema the StructType schema to construct store with.
  * @param params the parameters including those to construct the store
@@ -86,12 +81,13 @@ object HdfsStoreFactory {
  * @param prunedSchema the schema to pushdown (column pruning)
  * @param pushedAggregation the aggregate operations to pushdown
  */
-abstract class HdfsStore(schema: StructType,
-                         params: java.util.Map[String, String],
-                         filters: Array[Filter],
-                         prunedSchema: StructType,
-                         pushedAggregation: Aggregation) {
+class HdfsStore(schema: StructType,
+                params: java.util.Map[String, String],
+                filters: Array[Filter],
+                prunedSchema: StructType,
+                pushedAggregation: Aggregation) {
 
+  override def toString() : String = "HdfsStore" + params + filters.mkString(", ")
   protected val path = params.get("path")
   protected val endpoint = {
     val server = path.split("/")(2)
@@ -115,7 +111,6 @@ abstract class HdfsStore(schema: StructType,
     }
   }
   protected val logger = LoggerFactory.getLogger(getClass)
-  // SocketTimeout (24 * 3600 * 1000)
   protected val (readColumns: String,
                  readSchema: StructType) = {
     var (columns, updatedSchema) = 
@@ -151,7 +146,7 @@ abstract class HdfsStore(schema: StructType,
   def getReader(partition: HdfsPartition, startOffset: Long = 0): BufferedReader = {
     val filePath = new Path(partition.name)
     val readParam = {
-      if (fileSystemType != "dikehdfs" || params.containsKey("DisableDikeProcessor")) {
+      if (fileSystemType != "dikehdfs" || params.containsKey("DisableProcessor")) {
         ""
       } else {
         val (requestQuery, requestSchema) =  {
@@ -167,7 +162,7 @@ abstract class HdfsStore(schema: StructType,
       }
     }
     val inStrm = {
-      if (fileSystemType == "dikehdfs" && !params.containsKey("DisableDikeProcessor")) {
+      if (fileSystemType == "dikehdfs" && !params.containsKey("DisableProcessor")) {
         val fs = fileSystem.asInstanceOf[DikeHdfsFileSystem]
         fs.open(filePath, 4096, readParam).asInstanceOf[FSDataInputStream]
       } else {
@@ -178,8 +173,6 @@ abstract class HdfsStore(schema: StructType,
     val partitionLength = (partition.offset + partition.length) - startOffset
     new BufferedReader(new InputStreamReader(new BoundedInputStream(inStrm, partitionLength)))
   }
-  def getRowIter(partition: HdfsPartition): Iterator[InternalRow];
-
   /** Returns a list of BlockLocation object representing
    *  all the hdfs blocks in a file.
    *
@@ -190,18 +183,9 @@ abstract class HdfsStore(schema: StructType,
     val fileToRead = new Path(fileName)
     val fileStatus = fileSystem.getFileStatus(fileToRead)
 
-    // Use MaxValue to indicate we want info on all blocks. 
-    val fileBlocks: Array[BlockLocation] = 
-      fileSystem.getFileBlockLocations(fileToRead, 0, Long.MaxValue)
-
-    /* for (block <- fileBlocks) {
-      val names = block.getNames
-      println("offset: " + block.getOffset + " length: " + block.getLength
-              + " location: " + names(0))
-    }*/
-    fileBlocks
+    // Use MaxValue to indicate we want info on all blocks.
+    fileSystem.getFileBlockLocations(fileToRead, 0, Long.MaxValue)
   }
-
   /** Returns the length of the file in bytes.
    *
    * @param fileName the full path of the file
@@ -212,26 +196,6 @@ abstract class HdfsStore(schema: StructType,
     val fileStatus = fileSystem.getFileStatus(fileToRead)
     fileStatus.getLen
   }
-}
-/** A hdfs store, which can be used to read a partition with
- * any of various pushdowns.
- *
- * @param schema to apply to this store
- * @param params the parameters such as endpoint, etc.
- * @param filters the filters to pushdown to endpoint
- * @param prunedSchema
- * @param pushedAggregation
- */
-class HdfsStoreCSV(var schema: StructType,
-                   params: java.util.Map[String, String],
-                   filters: Array[Filter],
-                   var prunedSchema: StructType,
-                   pushedAggregation: Aggregation)
-  extends HdfsStore(schema, params, filters, prunedSchema,
-                    pushedAggregation) {
-
-  override def toString() : String = "HdfsStoreCSV" + params + filters.mkString(", ")
-
   /** Returns the offset in bytes to start reading
    *   an hdfs partition.
    *  This takes into account any prior lines that might be incomplete
@@ -242,8 +206,9 @@ class HdfsStoreCSV(var schema: StructType,
    */
   @throws(classOf[Exception])
   def getStartOffset(partition: HdfsPartition) : Long = {
-    if (fileSystemType == "dikehdfs") {
+    if (fileSystemType == "dikehdfs" && !params.containsKey("DisableProcessor")) {
       // No need to find offset, dike server does this under the covers for us.
+      // When DikeProcessor is disabled, we need to deal with partial lines for ourselves.
       return 0
     }
     val currentPath = new Path(filePath)
@@ -281,7 +246,9 @@ class HdfsStoreCSV(var schema: StructType,
    * @return a new CsvRowIterator for this partition.
    */
   def getRowIter(partition: HdfsPartition): Iterator[InternalRow] = {
-    new CSVRowIterator(getReader(partition, getStartOffset(partition)), readSchema)
+    RowIteratorFactory.getIterator(getReader(partition, getStartOffset(partition)),
+                                   readSchema,
+                                   params.get("format"))
   }
 }
 

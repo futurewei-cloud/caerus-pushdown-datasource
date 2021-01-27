@@ -37,6 +37,9 @@ class ProcessorRequest(schema: String,
                      <Configuration>
                        <Schema>{schema}</Schema>
                        <Query>{scala.xml.PCData(query)}</Query>
+                       <FieldDelimiter>,</FieldDelimiter>
+                       <RowDelimiter>\n</RowDelimiter>
+                       <QuoteDelimiter></QuoteDelimiter>
                      </Configuration>
                    </Processor>
         val writer = new StringWriter

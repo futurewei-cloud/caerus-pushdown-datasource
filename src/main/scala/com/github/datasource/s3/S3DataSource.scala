@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.github.datasource
+package com.github.datasource.s3
 
 import java.util
 
@@ -22,7 +22,6 @@ import scala.collection.JavaConverters._
 import scala.collection.mutable.{ArrayBuffer}
 
 import com.amazonaws.services.s3.model.S3ObjectSummary
-import com.github.datasource.store.{S3Partition, S3Store, S3StoreFactory}
 import org.slf4j.LoggerFactory
 
 import org.apache.spark.sql.catalyst.InternalRow
@@ -31,8 +30,16 @@ import org.apache.spark.sql.sources.Aggregation
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types._
 
+/** A scan object that works on S3 files.
+ *
+ * @param schema the column format
+ * @param options the options including "path"
+ * @param filters the array of filters to push down
+ * @param prunedSchema the new array of columns after pruning
+ * @param pushedAggregation the array of aggregations to push down
+ */
 class S3Scan(schema: StructType,
-                options: util.Map[String, String],
+             options: util.Map[String, String],
              filters: Array[Filter], prunedSchema: StructType,
              pushedAggregation: Aggregation)
       extends Scan with Batch {
@@ -94,6 +101,15 @@ class S3Scan(schema: StructType,
     logger.info(a.mkString(" "))
     a.toArray
   }
+
+  /** Returns an Array of S3Partitions for a given input file.
+   *  the file is selected by options("path").
+   *  If there is one file, then we will generate multiple partitions
+   *  on that file if large enough.
+   *  Otherwise we generate one partition per file based partition.
+   *
+   * @return array of S3Partitions
+   */
   private def getPartitions(): Array[InputPartition] = {
     var store: S3Store = S3StoreFactory.getS3Store(schema, options, filters,
                                                    prunedSchema,
@@ -118,6 +134,14 @@ class S3Scan(schema: StructType,
                                        pushedAggregation)
 }
 
+/** Creates a factory for creating S3PartitionReader objects
+ *
+ * @param schema the column format
+ * @param options the options including "path"
+ * @param filters the array of filters to push down
+ * @param prunedSchema the new array of columns after pruning
+ * @param pushedAggregation the array of aggregations to push down
+ */
 class S3PartitionReaderFactory(schema: StructType,
                                options: util.Map[String, String],
                                filters: Array[Filter],
@@ -127,12 +151,21 @@ class S3PartitionReaderFactory(schema: StructType,
   private val logger = LoggerFactory.getLogger(getClass)
   logger.trace("Created")
   override def createReader(partition: InputPartition): PartitionReader[InternalRow] = {
-    new S3PartitionReader(schema, options, filters, 
+    new S3PartitionReader(schema, options, filters,
                           prunedSchema, partition.asInstanceOf[S3Partition],
                           pushedAggregation)
   }
 }
 
+/** PartitionReader of S3Partitions
+ *
+ * @param schema the column format
+ * @param options the options including "path"
+ * @param filters the array of filters to push down
+ * @param prunedSchema the new array of columns after pruning
+ * @param partition the S3Partition to read from
+ * @param pushedAggregation the array of aggregations to push down
+ */
 class S3PartitionReader(schema: StructType,
                         options: util.Map[String, String],
                         filters: Array[Filter],

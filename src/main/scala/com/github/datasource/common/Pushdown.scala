@@ -22,7 +22,7 @@
  *   https://github.com/apache/spark/pull/29695
  */
 // scalastyle:on
-package com.github.datasource.store
+package com.github.datasource.common
 
 import java.sql.{Date, Timestamp}
 import java.util.{Locale, StringTokenizer}
@@ -100,7 +100,7 @@ object Pushdown {
       case StringStartsWith(attr, value) => Option(s"${attr} LIKE '${value}%'")
       case StringEndsWith(attr, value) => Option(s"${attr} LIKE '%${value}'")
       case StringContains(attr, value) => Option(s"${attr} LIKE '%${value}%'")
-      case other@_ => { logger.info("unknown filter:" + other) ; None }
+      case other@_ => logger.info("unknown filter:" + other) ; None
     }
   }
 
@@ -115,16 +115,6 @@ object Pushdown {
       None
     }
   }
-  private def buildObjectClause(partition: S3Partition): String = {
-    // Treat this as the one and only partition.
-    // Some sources like minio can't handle partitions, so this
-    // gives us a way to be compatible with them.
-    if (partition.onlyPartition) {
-      "S3Object"
-    } else {
-      s"""(SELECT * FROM S3Object LIMIT ${partition.numRows} OFFSET ${partition.rowOffset})"""
-    }
-  }
   def quoteIdentifier(colName: String): String = {
     s""""$colName""""
   }
@@ -132,7 +122,7 @@ object Pushdown {
    * `columns`, but as a String suitable for injection into a SQL query.
    */
   def getColumnSchema(aggregation: Aggregation,
-                      schema: StructType): 
+                      schema: StructType):
                      (String, StructType) = {
 
     val compiledAgg = compileAggregates(aggregation.aggregateExpressions)
@@ -145,9 +135,15 @@ object Pushdown {
     } else {
       updatedSchema = getAggregateColumnsList(sb, aggregation, schema, compiledAgg)
     }
-    (if (sb.length == 0) "" else sb.substring(1), 
+    (if (sb.length == 0) "" else sb.substring(1),
      if (sb.length == 0) schema else updatedSchema)
   }
+
+  /** Returns an array of aggregates translated to strings.
+   *
+   * @param aggregates the array of aggregates to translate
+   * @return array of strings
+   */
   def compileAggregates(aggregates: Seq[AggregateFunc]): (Array[String]) = {
     def quote(colName: String): String = quoteIdentifier(colName)
     val aggBuilder = ArrayBuilder.make[String]
@@ -196,12 +192,12 @@ object Pushdown {
     }
     colsBuilder.result.mkString(" ")
   }
-
   private def getAggregateColumnsList(sb: StringBuilder,
-                                      aggregation: Aggregation, schema: StructType, 
+                                      aggregation: Aggregation, schema: StructType,
                                       compiledAgg: Array[String]) = {
     val columnNames = schema.map(_.name).toArray
-    val quotedColumns: Array[String] = columnNames.map(colName => quoteIdentifier(colName.toLowerCase(Locale.ROOT)))
+    val quotedColumns: Array[String] =
+      columnNames.map(colName => quoteIdentifier(colName.toLowerCase(Locale.ROOT)))
     val colDataTypeMap: Map[String, StructField] = quotedColumns.zip(schema.fields).toMap
     val newColsBuilder = ArrayBuilder.make[String]
     var updatedSchema: StructType = new StructType()
@@ -276,7 +272,7 @@ object Pushdown {
   }
 
   private def contains(s1: String, s2: String, checkParathesis: Boolean): Boolean = {
-    if (false /*SQLConf.get.caseSensitiveAnalysis*/) {
+    if (false /* SQLConf.get.caseSensitiveAnalysis */) {
       if (checkParathesis) s1.contains("(" + s2) else s1.contains(s2)
     } else {
       if (checkParathesis) {
@@ -331,12 +327,17 @@ object Pushdown {
       ""
     }
   }
+
+  /** Returns a string to represent the input query.
+   *
+   * @return String representing the query to send to the endpoint.
+   */
   def queryFromSchema(schema: StructType,
                       prunedSchema: StructType,
                       columns: String,
                       filters: Array[Filter],
                       aggregation: Aggregation,
-                      partition: S3Partition): String = {
+                      partition: PushdownPartition): String = {
     var columnList = prunedSchema.fields.map(x => s"s." + s""""${x.name}"""").mkString(",")
 
     if (columns.length > 0) {
@@ -345,7 +346,7 @@ object Pushdown {
       columnList = "*"
     }
     val whereClause = buildWhereClause(schema, filters)
-    val objectClause = buildObjectClause(partition)
+    val objectClause = partition.getObjectClause(partition)
     var retVal = ""
     val groupByClause = getGroupByClause(aggregation)
     if (whereClause.length == 0) {
@@ -353,9 +354,27 @@ object Pushdown {
     } else {
       retVal = s"SELECT $columnList FROM $objectClause s $whereClause $groupByClause"
     }
-    logger.info(s"""SQL Query partition(${partition.index}:${partition.key}): 
+    logger.info(s"""SQL Query partition (${partition.toString}):
                  |${retVal}""".stripMargin);
     retVal
   }
-
+  /** Returns a string to represent the schema of the table.
+   *
+   * @param schema the StructType representing the definition of columns.
+   * @return String representing the table's columns.
+   */
+  def schemaString(schema: StructType): String = {
+    
+    schema.fields.map(x => {
+      val dataTypeString = {
+        x.dataType match {
+        case IntegerType => "INTEGER"
+        case LongType => "LONG"
+        case DoubleType => "NUMERIC"
+        case _ => "STRING"
+        }
+      }
+      s"${x.name} ${dataTypeString}"
+    }).mkString(", ")
+  }
 }

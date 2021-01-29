@@ -1,4 +1,0 @@
--Dsbt.global.base=/s3datasource/s3datasource/build/sbt/ 
--Dsbt.ivy.home=/s3datasource/s3datasource/build/ivy2/ 
--Divy.home=/s3datasource/s3datasource/build/ivy2/ 
--Dsbt.coursier.home=/s3datasource/s3datasource/build/coursier/

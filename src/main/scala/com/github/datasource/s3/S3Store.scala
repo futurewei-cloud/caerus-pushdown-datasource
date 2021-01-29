@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 // scalastyle:on
-package com.github.datasource.store
+package com.github.datasource.s3
 
 import java.io.BufferedReader
 import java.io.InputStream
@@ -45,6 +45,9 @@ import com.amazonaws.services.s3.model.S3ObjectSummary
 import com.amazonaws.services.s3.model.SelectObjectContentEvent
 import com.amazonaws.services.s3.model.SelectObjectContentEventVisitor
 import com.amazonaws.services.s3.model.SelectRecordsInputStream
+import com.github.datasource.common.Pushdown
+import com.github.datasource.common.Select
+import com.github.datasource.common.TypeCast
 
 import org.apache.commons.csv._
 import org.apache.commons.io.IOUtils
@@ -62,8 +65,24 @@ import org.apache.spark.sql.sources.{Aggregation, Filter}
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 import org.apache.spark.unsafe.types.UTF8String
+import com.github.datasource.parse.RowIteratorFactory
 
+/** A Factory to fetch the correct type of
+ *  store object depending on the expected output type
+ *  to be sent back from the store.
+ */
 object S3StoreFactory{
+  /** Returns the store object which can process
+   *  the input format from params("format").
+   *  Currently only csv, json, parquet are supported.
+   *
+   * @param schema the StructType schema to construct store with.
+   * @param params the parameters including those to construct the store
+   * @param filters the filters to pass down to the store.
+   * @param prunedSchema the schema to pushdown (column pruning)
+   * @param pushedAggregation the aggregate operations to pushdown
+   * @return a new HdfsStore object constructed with above parameters.
+   */
   def getS3Store(schema: StructType,
                  params: java.util.Map[String, String],
                  filters: Array[Filter],
@@ -81,6 +100,16 @@ object S3StoreFactory{
     }
   }
 }
+/** An abstract hdfs store object which can connect
+ *  to an hdfs endpoint, specified by params("endpoint")
+ *  Other parameters are parmas("path")
+ *
+ * @param schema the StructType schema to construct store with.
+ * @param params the parameters including those to construct the store
+ * @param filters the filters to pass down to the store.
+ * @param prunedSchema the schema to pushdown (column pruning)
+ * @param pushedAggregation the aggregate operations to pushdown
+ */
 abstract class S3Store(schema: StructType,
                        params: java.util.Map[String, String],
                        filters: Array[Filter],
@@ -156,6 +185,11 @@ abstract class S3Store(schema: StructType,
     rows
   }
 
+  /** Returns a list of S3ObjectSummary objects for
+   *  all the files specified by s3URI's key.
+   *
+   * @return the array of S3ObjectSummary
+   */
   def getObjectSummaries(): Array[S3ObjectSummary] = {
     var req = new ListObjectsV2Request()
     var result = new ListObjectsV2Result()
@@ -186,26 +220,44 @@ abstract class S3Store(schema: StructType,
     objectSummaries.toArray
   }
 }
-
+/** A S3 protocol store, which can be used to read a partition with
+ * any of various pushdowns.
+ *
+ * @param schema to apply to this store
+ * @param params the parameters such as endpoint, etc.
+ * @param filters the filters to pushdown to endpoint
+ * @param prunedSchema
+ * @param pushedAggregation
+ */
 class S3StoreCSV(var schema: StructType,
                  params: java.util.Map[String, String],
                  filters: Array[Filter],
                  var prunedSchema: StructType,
                  pushedAggregation: Aggregation)
-                 extends S3Store(schema, params, filters, prunedSchema, 
+                 extends S3Store(schema, params, filters, prunedSchema,
                                  pushedAggregation) {
 
   override def toString() : String = "S3StoreCSV" + params + filters.mkString(", ")
-  def drainInputStream(in: SelectRecordsInputStream) = {
-    var buf : Array[Byte] = new Array[Byte](9192);            
+  def drainInputStream(in: SelectRecordsInputStream): Unit = {
+    var buf : Array[Byte] = new Array[Byte](9192);
       var n = 0;
       var totalBytes = 0
       do {
         n = in.read(buf)
         totalBytes += n
       } while (n > -1)
-    //logger.info("current: " + n + " Total bytes: " + totalBytes)
+    // logger.info("current: " + n + " Total bytes: " + totalBytes)
   }
+  /** Returns a reader for a given S3 partition.
+   *  Determines the correct start offset by looking backwards
+   *  to find the end of the prior line.
+   *  Helps in cases where the last line of the prior partition
+   *  was split on the partition boundary.  In that case, the
+   *  prior partition's last (incomplete) is included in the next partition.
+   *
+   * @param partition the partition to read
+   * @return a new BufferedReader for this partition.
+   */
   def getReader(partition: S3Partition): BufferedReader = {
     var params: Map[String, String] = Map("" -> "")
     new BufferedReader(new InputStreamReader(
@@ -226,8 +278,15 @@ class S3StoreCSV(var schema: StructType,
         }
        })))
   }
+  /** Returns an Iterator over InternalRow for a given Hdfs partition.
+   *
+   * @param partition the partition to read
+   * @return a new CsvRowIterator for this partition.
+   */
   def getRowIter(partition: S3Partition): Iterator[InternalRow] = {
-    new CSVRowIterator(getReader(partition), readSchema)
+    RowIteratorFactory.getIterator(getReader(partition),
+                                   readSchema,
+                                   params.get("format"))
   }
   override def getRows(partition: S3Partition): ArrayBuffer[InternalRow] = {
     val numRows = getNumRows()
@@ -326,7 +385,9 @@ class S3StoreJSON(schema: StructType,
   }
   // TBD for JSON, stubbed out for now.
   def getRowIter(partition: S3Partition): Iterator[InternalRow] = {
-    new CSVRowIterator(getReader(partition), readSchema)
+    RowIteratorFactory.getIterator(getReader(partition),
+                                   readSchema,
+                                   params.get("format"))
   }
   override def getRows(partition: S3Partition): ArrayBuffer[InternalRow] = {
     var records = new ArrayBuffer[InternalRow]
@@ -420,7 +481,9 @@ class S3StoreParquet(schema: StructType,
   }
   // TBD for parquet, stubbed out for now.
   def getRowIter(partition: S3Partition): Iterator[InternalRow] = {
-    new CSVRowIterator(getReader(partition), readSchema)
+    RowIteratorFactory.getIterator(getReader(partition),
+                                   readSchema,
+                                   params.get("format"))
   }
   override def getRows(partition: S3Partition): ArrayBuffer[InternalRow] = {
     var records = new ArrayBuffer[InternalRow]
@@ -484,4 +547,23 @@ object S3StoreCSV {
   private var currentTransferLength: Double = 0
   def resetTransferLength : Unit = { currentTransferLength = 0 }
   def getTransferLength : Double = { currentTransferLength }
+}
+
+/** Related routines for the S3 connector.
+ *
+ */
+object S3Store {
+  /** Returns true if pushdown is supported by this flavor of
+   *  filesystem represented by a string of "filesystem://filename".
+   *
+   * @param options map containing "path".
+   * @return true if pushdown supported, false otherwise.
+   */
+  def pushdownSupported(options: util.Map[String, String]): Boolean = {
+    if (options.get("path").contains("s3a://")) {
+      true
+    } else {
+      false
+    }
+  } 
 }

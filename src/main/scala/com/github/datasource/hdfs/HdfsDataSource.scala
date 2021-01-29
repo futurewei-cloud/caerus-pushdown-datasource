@@ -14,14 +14,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.github.datasource
+package com.github.datasource.hdfs
 
 import java.util
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.{ArrayBuffer}
 
-import com.github.datasource.store.{HdfsPartition, HdfsStore, HdfsStoreFactory}
 import org.slf4j.LoggerFactory
 
 import org.apache.hadoop.fs.BlockLocation
@@ -31,6 +30,14 @@ import org.apache.spark.sql.sources.Aggregation
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types._
 
+/** A scan object that works on HDFS files.
+ *
+ * @param schema the column format
+ * @param options the options including "path"
+ * @param filters the array of filters to push down
+ * @param prunedSchema the new array of columns after pruning
+ * @param pushedAggregation the array of aggregations to push down
+ */
 class HdfsScan(schema: StructType,
                options: util.Map[String, String],
                filters: Array[Filter], prunedSchema: StructType,
@@ -52,7 +59,7 @@ class HdfsScan(schema: StructType,
     var a = new ArrayBuffer[InputPartition](0)
     var i = 0
     if (options.containsKey("partitions") &&
-          options.get("partitions").toInt == 1) {   
+          options.get("partitions").toInt == 1) {
       a += new HdfsPartition(index = 0, offset = 0, length = store.getLength(fileName),
                              name = fileName)
     } else {
@@ -66,11 +73,19 @@ class HdfsScan(schema: StructType,
     logger.info(a.mkString(" "))
     a.toArray
   }
+  /** Returns an Array of S3Partitions for a given input file.
+   *  the file is selected by options("path").
+   *  If there is one file, then we will generate multiple partitions
+   *  on that file if large enough.
+   *  Otherwise we generate one partition per file based partition.
+   *
+   * @return array of S3Partitions
+   */
   private def getPartitions(): Array[InputPartition] = {
     var store: HdfsStore = HdfsStoreFactory.getStore(schema, options,
                                                      filters, prunedSchema,
                                                      pushedAggregation)
-    val fileName = options.get("path").replace("hdfs://", "")                                                 
+    val fileName = store.filePath                                              
     val blocks : Array[BlockLocation] = store.getBlockList(fileName)
     createPartitions(blocks, fileName, store)
   }
@@ -84,11 +99,19 @@ class HdfsScan(schema: StructType,
                                        pushedAggregation)
 }
 
+/** Creates a factory for creating HdfsPartitionReader objects
+ *
+ * @param schema the column format
+ * @param options the options including "path"
+ * @param filters the array of filters to push down
+ * @param prunedSchema the new array of columns after pruning
+ * @param pushedAggregation the array of aggregations to push down
+ */
 class HdfsPartitionReaderFactory(schema: StructType,
-                               options: util.Map[String, String],
-                               filters: Array[Filter],
-                               prunedSchema: StructType,
-                               pushedAggregation: Aggregation)
+                                 options: util.Map[String, String],
+                                 filters: Array[Filter],
+                                 prunedSchema: StructType,
+                                 pushedAggregation: Aggregation)
   extends PartitionReaderFactory {
   private val logger = LoggerFactory.getLogger(getClass)
   logger.trace("Created")
@@ -99,6 +122,15 @@ class HdfsPartitionReaderFactory(schema: StructType,
   }
 }
 
+/** PartitionReader of HdfsPartitions
+ *
+ * @param schema the column format
+ * @param options the options including "path"
+ * @param filters the array of filters to push down
+ * @param prunedSchema the new array of columns after pruning
+ * @param partition the HdfsPartition to read from
+ * @param pushedAggregation the array of aggregations to push down
+ */
 class HdfsPartitionReader(schema: StructType,
                           options: util.Map[String, String],
                           filters: Array[Filter],

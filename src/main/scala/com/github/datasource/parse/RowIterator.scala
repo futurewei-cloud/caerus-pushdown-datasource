@@ -15,34 +15,75 @@
  * limitations under the License.
  */
 
-package com.github.datasource.store
+package com.github.datasource.parse
 
 import java.io.BufferedReader
+import java.util.Locale
 import java.util
 
 import scala.collection.JavaConverters._
 
 import org.slf4j.LoggerFactory
-import com.univocity.parsers.csv._
-
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types._
+import com.github.datasource.common.TypeCast
 
-class CSVRowIterator(rowReader: BufferedReader,
-                     schema: StructType)
+class Delimiters(var fieldDelim: Char,
+                 var lineDelim: Char = '\n',
+                 var quoteDelim: Char = '\"')
+
+/** A Factory to fetch the correct type of
+ *  row Iterator object depending on the file format.
+ *
+ * RowIteratorFactory.getIterator(rowReader, schema, params)
+ */
+object RowIteratorFactory {
+  /** Returns the Iterator object which can process
+   *  the input format from params("format").
+   *  Currently only csv and tbl is supported.
+   *
+   * @param schema the StructType schema to construct store with.
+   * @param params the parameters including those to construct the store
+   * @param rowReader the BufferedReader that has the
+   * @return a new Iterator of InternalRow constructed with above parameters.
+   */
+  def getIterator(rowReader: BufferedReader,
+                  schema: StructType,
+                  format: String): Iterator[InternalRow] = {
+    format.toLowerCase(Locale.ROOT) match {
+      case "csv" => new RowIterator(rowReader, schema, new Delimiters(','))
+      case "tbl" => new RowIterator(rowReader, schema, new Delimiters('|'))
+    }
+  }
+}
+
+/** Iterator object that allows for parsing
+ *  tbl rows into InternalRow structures.
+ *
+ * @param rowReader the bufferedReader to fetch data
+ * @param schema the format of this stream of data
+ */
+class RowIterator(rowReader: BufferedReader,
+                  schema: StructType,
+                  delim: Delimiters)
   extends Iterator[InternalRow] {
 
   private val logger = LoggerFactory.getLogger(getClass)
-
+  /** Returns an InternalRow parsed from the input line.
+   *
+   * @param line the String of line to parse
+   * @return the InternalRow of this line..
+   */
   private def parseLine(line: String): InternalRow = {
     var row = new Array[Any](schema.fields.length)
     var value: String = ""
     var index = 0
     var fieldStart = 0
+    // println("parseLine: " + line)
     while (index < schema.fields.length && fieldStart < line.length) {
-      if (line(fieldStart) != '\"') {
-        var fieldEnd = line.substring(fieldStart).indexOf(",")
+      if (line(fieldStart) != delim.quoteDelim) {
+        var fieldEnd = line.substring(fieldStart).indexOf(delim.fieldDelim)
         if (fieldEnd == -1) {
           // field is from here to the end of the line
           value = line.substring(fieldStart)
@@ -56,7 +97,7 @@ class CSVRowIterator(rowReader: BufferedReader,
         }
       } else {
         // Search from +1 (after ") to next quote
-        var fieldEnd = line.substring(fieldStart + 1).indexOf("\"")
+        var fieldEnd = line.substring(fieldStart + 1).indexOf(delim.quoteDelim)
         // Field range is from after " to just before (-1) next quote
         value = line.substring(fieldStart + 1, fieldStart + fieldEnd + 1)
         // Next field start is after quote and comma
@@ -67,9 +108,9 @@ class CSVRowIterator(rowReader: BufferedReader,
                                    field.nullable)
       index += 1
     }
-    /* We can get broken lines when dealing with
-     * hdfs, so we will simply discard the row since
+    /* We will simply discard the row since
      * the next partition will pick up this row.
+     * This can be expected for some protocols, thus there is no tracing by default.
      */
     if (index < schema.fields.length) {
       //println(s"line too short ${index}/${schema.fields.length}: ${line}")
@@ -79,30 +120,19 @@ class CSVRowIterator(rowReader: BufferedReader,
     }
   }
 
-  /* We have the option of parsing ourselves or
-   * using the univocity parser.  For now we use manual method for
-   * performance reasons.
-  private val settings: CsvParserSettings = new CsvParserSettings()
-  private val parser: CsvParser = new CsvParser(settings);
-
-  private def parseLineWithParser(line: String): InternalRow = {
-    val record = parser.parseRecord(line)
-
-    var row = new Array[Any](schema.fields.length)
-    var index = 0
-    while (index < schema.fields.length) {
-      val field = schema.fields(index)
-      row(index) = TypeCast.castTo(record.getString(index), field.dataType,
-        field.nullable)
-      index += 1
-    }
-    InternalRow.fromSeq(row.toSeq)
-  } */
-
+  /** Returns the next row or if none, InternalRow.empty.
+   *
+   * @return InternalRow for the next row.
+   */
   private var nextRow: InternalRow = {
     val firstRow = getNextRow()
     firstRow
   }
+  /** Returns row following the current one, 
+   *  (if availble), by parsing the next line.
+   *
+   * @return the next InternalRow object or InternalRow.empty if none.
+   */
   private def getNextRow(): InternalRow = {
     var line: String = null
     if ({line = rowReader.readLine(); line == null}) {
@@ -111,15 +141,21 @@ class CSVRowIterator(rowReader: BufferedReader,
       parseLine(line)
     }
   }
+  /** Returns true if there are remaining rows.
+   *
+   * @return true if rows remaining, false otherwise.
+   */
   override def hasNext: Boolean = {
     nextRow.numFields > 0
   }
-
+  /** Returns the following InternalRow
+   *
+   * @return the next InternalRow or InternalRow.empty if none.
+   */
   override def next: InternalRow = {
     val row = nextRow
     nextRow = getNextRow()
     row
   }
-
   def close(): Unit = Unit
 }

@@ -14,23 +14,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.github.datasource.store
+package com.github.datasource.common
 
-import org.apache.spark.Partition
-import org.apache.spark.sql.connector.read.InputPartition
+/**
+ * InputPartitions should implement this trait so that they can 
+ * provide details needed by a pushdown data source.
+ *
+ */
+trait PushdownPartition {
 
-class HdfsPartition(var index: Int,
-                    var offset: Long = 0,
-                    var length: Long = 0,
-                    var name: String = "")
-  extends Partition with InputPartition {
-
-  override def toString() : String = {
-    s"""HdfsPartition index ${index} offset: ${offset} length: ${length} """ +
-    s"""name: ${name}"""
-  }
-
-  override def preferredLocations(): Array[String] = {
-    Array("localhost")
-  }
+  /**
+   * The string that represents the string to use to target
+   * this partition with an SQL Query. For example:
+   *
+   * {{{
+   *   override getObjectClause(partition: s3Partition): String = "S3Object"
+   * }}}
+   *
+   * @since 1.5.0
+   */
+  def getObjectClause(partition: PushdownPartition): String
 }

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 // scalastyle:on
-package com.github.s3datasource.store
+package com.github.datasource.store
 
 import java.io.BufferedReader
 import java.io.InputStream
@@ -42,6 +42,8 @@ import com.amazonaws.services.s3.AmazonS3URI
 import com.amazonaws.services.s3.model.ListObjectsV2Request
 import com.amazonaws.services.s3.model.ListObjectsV2Result
 import com.amazonaws.services.s3.model.S3ObjectSummary
+import com.amazonaws.services.s3.model.SelectObjectContentEvent
+import com.amazonaws.services.s3.model.SelectObjectContentEventVisitor
 import com.amazonaws.services.s3.model.SelectRecordsInputStream
 
 import org.apache.commons.csv._
@@ -96,14 +98,14 @@ abstract class S3Store(schema: StructType,
   logger.trace("S3Store Created")
 
   protected val s3Credential = new BasicAWSCredentials(params.get("accessKey"),
-                                                     params.get("secretKey"))
+                                                       params.get("secretKey"))
   protected val s3Client = AmazonS3ClientBuilder.standard()
     .withEndpointConfiguration(new AwsClientBuilder.EndpointConfiguration(
                                params.get("endpoint"), Regions.US_EAST_1.name()))
     .withPathStyleAccessEnabled(true)
     .withCredentials(staticCredentialsProvider(s3Credential))
-    .withClientConfiguration(new ClientConfiguration().withRequestTimeout(5 * 60 * 1000)
-                                                      .withSocketTimeout(5 * 60 * 1000))
+    .withClientConfiguration(new ClientConfiguration().withRequestTimeout(24 * 3600 * 1000)
+                                                      .withSocketTimeout(24 * 3600* 1000))
     .build()
   protected val (readColumns: String,
                  readSchema: StructType) = {
@@ -217,9 +219,13 @@ class S3StoreCSV(var schema: StructType,
                               filters,
                               pushedAggregation,
                               partition)
-      ).getPayload().getRecordsInputStream()))
+      ).getPayload().getRecordsInputStream(new SelectObjectContentEventVisitor() {
+        override def visit(event: SelectObjectContentEvent.RecordsEvent) {
+          var data = event.getPayload().array()
+          S3StoreCSV.currentTransferLength += data.length
+        }
+       })))
   }
-   
   def getRowIter(partition: S3Partition): Iterator[InternalRow] = {
     new CSVRowIterator(getReader(partition), readSchema)
   }
@@ -474,3 +480,8 @@ class S3StoreParquet(schema: StructType,
 }
 
 
+object S3StoreCSV {
+  private var currentTransferLength: Double = 0
+  def resetTransferLength : Unit = { currentTransferLength = 0 }
+  def getTransferLength : Double = { currentTransferLength }
+}

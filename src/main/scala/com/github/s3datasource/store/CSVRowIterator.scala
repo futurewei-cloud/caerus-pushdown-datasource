@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package com.github.s3datasource.store
+package com.github.datasource.store
 
 import java.io.BufferedReader
 import java.util
@@ -60,14 +60,23 @@ class CSVRowIterator(rowReader: BufferedReader,
         // Field range is from after " to just before (-1) next quote
         value = line.substring(fieldStart + 1, fieldStart + fieldEnd + 1)
         // Next field start is after quote and comma
-        fieldStart = fieldEnd + 2
+        fieldStart = fieldStart + 1 + fieldEnd + 2
       }
       val field = schema.fields(index)
       row(index) = TypeCast.castTo(value, field.dataType,
                                    field.nullable)
       index += 1
     }
-    InternalRow.fromSeq(row.toSeq)
+    /* We can get broken lines when dealing with
+     * hdfs, so we will simply discard the row since
+     * the next partition will pick up this row.
+     */
+    if (index < schema.fields.length) {
+      //println(s"line too short ${index}/${schema.fields.length}: ${line}")
+      InternalRow.empty
+    } else {
+      InternalRow.fromSeq(row.toSeq)
+    }
   }
 
   /* We have the option of parsing ourselves or

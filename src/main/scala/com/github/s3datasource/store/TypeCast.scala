@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 // scalastyle:on
-package com.github.s3datasource.store
+package com.github.datasource.store
 
 import java.math.BigDecimal
 import java.sql.{Date, Timestamp}

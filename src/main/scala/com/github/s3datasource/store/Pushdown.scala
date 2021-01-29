@@ -22,7 +22,7 @@
  *   https://github.com/apache/spark/pull/29695
  */
 // scalastyle:on
-package com.github.s3datasource.store
+package com.github.datasource.store
 
 import java.sql.{Date, Timestamp}
 import java.util.{Locale, StringTokenizer}
@@ -95,7 +95,12 @@ object Pushdown {
       case GreaterThan(attr, value) => buildComparison(attr, value, ">")
       case LessThanOrEqual(attr, value) => buildComparison(attr, value, "<=")
       case GreaterThanOrEqual(attr, value) => buildComparison(attr, value, ">=")
-      case _ => None
+      case IsNull(attr) => Option(s"${attr} IS NULL")
+      case IsNotNull(attr) => Option(s"${attr} IS NOT NULL")
+      case StringStartsWith(attr, value) => Option(s"${attr} LIKE '${value}%'")
+      case StringEndsWith(attr, value) => Option(s"${attr} LIKE '%${value}'")
+      case StringContains(attr, value) => Option(s"${attr} LIKE '%${value}%'")
+      case other@_ => { logger.info("unknown filter:" + other) ; None }
     }
   }
 
@@ -196,27 +201,17 @@ object Pushdown {
                                       aggregation: Aggregation, schema: StructType, 
                                       compiledAgg: Array[String]) = {
     val columnNames = schema.map(_.name).toArray
-    val quotedColumns: Array[String] = columnNames.map(colName => quoteIdentifier(colName))
+    val quotedColumns: Array[String] = columnNames.map(colName => quoteIdentifier(colName.toLowerCase(Locale.ROOT)))
     val colDataTypeMap: Map[String, StructField] = quotedColumns.zip(schema.fields).toMap
     val newColsBuilder = ArrayBuilder.make[String]
     var updatedSchema: StructType = new StructType()
-
-    for (col1 <- quotedColumns) {
-      var found = false
-      for (col2 <- compiledAgg) {
-        if (contains(col2, col1, true)) {
-          newColsBuilder += col2
-          found = true
-        }
-      }
-      if (!found) {
-        for (groupBy <- aggregation.groupByExpressions) {
-          if (contains(groupBy, col1.substring(1, col1.length - 1), false)) {
-            newColsBuilder += col1;
-          }
-        }
-      }
+    for (col <- compiledAgg) {
+      newColsBuilder += col
     }
+    for (groupBy <- aggregation.groupByExpressions) {
+      newColsBuilder += quoteIdentifier(groupBy)
+    }
+
     val newColumns = newColsBuilder.result
     sb.append(", ").append(newColumns.mkString(", "))
 
@@ -249,7 +244,7 @@ object Pushdown {
         //   follow what is done in Sum.resultType, +10 to precision
         val dataField = getDataType(colName, colDataTypeMap)
         dataField.dataType match {
-          // We cannot access ese  private classes. Disable for now.
+          // We cannot access these private classes. Disable for now.
           /* case DecimalType.Fixed(precision, scale) =>
             updatedSchema = updatedSchema.add(
               dataField.name, DecimalType.bounded(precision + 10, scale), dataField.nullable)
@@ -296,7 +291,7 @@ object Pushdown {
       cols: Array[String],
       colDataTypeMap: Map[String, StructField]): StructField = {
     if (cols.length == 1) {
-      colDataTypeMap.get(cols(0)).get
+      colDataTypeMap.get(cols(0).toLowerCase(Locale.ROOT)).get
     } else {
       val map = new java.util.HashMap[Object, Integer]
       map.put(ByteType, 0)
@@ -306,9 +301,9 @@ object Pushdown {
       map.put(FloatType, 4)
       map.put(DecimalType, 5)
       map.put(DoubleType, 6)
-      var colType = colDataTypeMap.get(cols(0)).get
+      var colType = colDataTypeMap.get(cols(0).toLowerCase(Locale.ROOT)).get
       for (i <- 1 until cols.length) {
-        val dType = colDataTypeMap.get(cols(i)).get
+        val dType = colDataTypeMap.get(cols(i).toLowerCase(Locale.ROOT)).get
         if (dType.dataType.isInstanceOf[DecimalType]
           && colType.dataType.isInstanceOf[DecimalType]) {
           if (dType.dataType.asInstanceOf[DecimalType].precision

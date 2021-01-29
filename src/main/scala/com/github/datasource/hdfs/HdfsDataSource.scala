@@ -59,7 +59,7 @@ class HdfsScan(schema: StructType,
     var a = new ArrayBuffer[InputPartition](0)
     var i = 0
     if (options.containsKey("partitions") &&
-          options.get("partitions").toInt == 1) {   
+          options.get("partitions").toInt == 1) {
       a += new HdfsPartition(index = 0, offset = 0, length = store.getLength(fileName),
                              name = fileName)
     } else {

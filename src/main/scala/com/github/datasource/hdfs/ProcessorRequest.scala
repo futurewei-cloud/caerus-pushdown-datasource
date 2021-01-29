@@ -28,7 +28,8 @@ import org.apache.spark.sql.connector.read.InputPartition
  * @param query the SQL operation to perform or empty string if none.
  */
 class ProcessorRequest(schema: String,
-                       query: String) {
+                       query: String,
+                       blockSize: Long) {
 
     def toXml : String = {
         val root = <Processor>
@@ -37,9 +38,10 @@ class ProcessorRequest(schema: String,
                      <Configuration>
                        <Schema>{schema}</Schema>
                        <Query>{scala.xml.PCData(query)}</Query>
+                       <BlockSize>{blockSize}</BlockSize>
                        <FieldDelimiter>,</FieldDelimiter>
                        <RowDelimiter>\n</RowDelimiter>
-                       <QuoteDelimiter></QuoteDelimiter>
+                       <QuoteDelimiter>""</QuoteDelimiter>
                      </Configuration>
                    </Processor>
         val writer = new StringWriter

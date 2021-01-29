@@ -145,7 +145,8 @@ class HdfsStore(schema: StructType,
    * @param partition the partition to read
    * @return a new BufferedReader for this partition.
    */
-  def getReader(partition: HdfsPartition, startOffset: Long = 0): BufferedReader = {
+  def getReader(partition: HdfsPartition, 
+                startOffset: Long = 0, length: Long = 0): BufferedReader = {
     val filePath = new Path(partition.name)
     val readParam = {
       if (fileSystemType != "dikehdfs" || params.containsKey("DisableProcessor")) {
@@ -160,20 +161,19 @@ class HdfsStore(schema: StructType,
             ("", "")
           }
         }
-        new ProcessorRequest(requestSchema, requestQuery).toXml
+        new ProcessorRequest(requestSchema, requestQuery, partition.length).toXml
       }
     }
-    val inStrm = {
-      if (fileSystemType == "dikehdfs" && !params.containsKey("DisableProcessor")) {
+    if (fileSystemType == "dikehdfs" && !params.containsKey("DisableProcessor")) {
         val fs = fileSystem.asInstanceOf[DikeHdfsFileSystem]
-        fs.open(filePath, 4096, readParam).asInstanceOf[FSDataInputStream]
-      } else {
-        fileSystem.open(filePath)
-      }
+        val inStrm = fs.open(filePath, 4096, readParam).asInstanceOf[FSDataInputStream]
+        inStrm.seek(partition.offset)
+        new BufferedReader(new InputStreamReader(inStrm))
+    } else {
+        val inStrm = fileSystem.open(filePath)
+        inStrm.seek(startOffset) 
+        new BufferedReader(new InputStreamReader(new BoundedInputStream(inStrm, length)))
     }
-    inStrm.seek(startOffset)
-    val partitionLength = (partition.offset + partition.length) - startOffset
-    new BufferedReader(new InputStreamReader(new BoundedInputStream(inStrm, partitionLength)))
   }
   /** Returns a list of BlockLocation object representing
    *  all the hdfs blocks in a file.
@@ -198,49 +198,53 @@ class HdfsStore(schema: StructType,
     val fileStatus = fileSystem.getFileStatus(fileToRead)
     fileStatus.getLen
   }
-  /** Returns the offset in bytes to start reading
-   *   an hdfs partition.
+  /** Returns the offset, length in bytes of an hdfs partition.
    *  This takes into account any prior lines that might be incomplete
    *  from the prior partition.
    *
    * @param partition the partition to find start for
-   * @return offset to begin reading partition
+   * @return (offset, length) - Offset to begin reading partition, Length of partition.
    */
   @throws(classOf[Exception])
-  def getStartOffset(partition: HdfsPartition) : Long = {
+  def getPartitionInfo(partition: HdfsPartition) : (Long, Long) = {
     if (fileSystemType == "dikehdfs" && !params.containsKey("DisableProcessor")) {
       // No need to find offset, dike server does this under the covers for us.
       // When DikeProcessor is disabled, we need to deal with partial lines for ourselves.
-      return 0
+      return (partition.offset, partition.length)
     }
     val currentPath = new Path(filePath)
-    if (partition.offset == 0) 0 else {
-      /* When we are not the first partition,
-       * read the end of the last partition and find the prior line break.
-       * The prior partition will stop at the end of the partition and discard
-       * the partial line.  This partition will include that prior line.
+    var startOffset = partition.offset
+    var nextChar: Integer = 0
+    if (partition.offset != 0) {
+      /* Scan until we hit a newline. This skips the (normally) partial line,
+       * which the prior partition will read, and guarantees we get a full line.
+       * The only way to guarantee full lines is by reading up to the line terminator.
        */
-      val partitionBytes = 1024
-      val priorBytes = 1024
-      var lineEnd = -1
-      val bufferBytes = {
-        if (partition.length > partitionBytes) {
-          priorBytes + partitionBytes
-        } else
-          priorBytes + partition.length.asInstanceOf[Int]
+      val inputStream = fileSystem.open(currentPath)
+      inputStream.seek(partition.offset)
+      val reader = new BufferedReader(new InputStreamReader(inputStream))
+      do {
+        nextChar = reader.read
+        startOffset += 1
+      } while ((nextChar.toChar != '\n') && (nextChar != -1));
+    } 
+    var partitionLength = (partition.offset + partition.length) - startOffset
+    /* Scan up to the next line after the end of the partition.
+     * We always include this next line to ensure we are reading full lines.
+     * The only way to guarantee full lines is by reading up to the line terminator.
+     */
+    val inputStream = fileSystem.open(currentPath)
+    inputStream.seek(partition.offset + partition.length)
+    val reader = new BufferedReader(new InputStreamReader(inputStream))
+    do {
+      nextChar = reader.read
+      // Only count the char if we are not at end of line.
+      if (nextChar != -1) {
+        partitionLength += 1
       }
-      val buffer = new Array[Byte](bufferBytes)
-      val inStrm = fileSystem.open(currentPath)
-      inStrm.seek(partition.offset)
-      inStrm.readFully(partition.offset - priorBytes, buffer)
-      for (i <- priorBytes to 0 by -1) {
-        if (buffer(i) == '\n') {
-          return partition.offset - (priorBytes.asInstanceOf[Long] - (i.asInstanceOf[Long] + 1))
-        }
-      }
-      if (lineEnd == -1) throw new Exception("line end not found")
-      lineEnd
-    }
+    } while ((nextChar.toChar != '\n') && (nextChar != -1));
+    //println(s"partition: ${partition.index} offset: ${startOffset} length: ${partitionLength}")
+    (startOffset, partitionLength)
   }
   /** Returns an Iterator over InternalRow for a given Hdfs partition.
    *
@@ -248,7 +252,8 @@ class HdfsStore(schema: StructType,
    * @return a new CsvRowIterator for this partition.
    */
   def getRowIter(partition: HdfsPartition): Iterator[InternalRow] = {
-    RowIteratorFactory.getIterator(getReader(partition, getStartOffset(partition)),
+    val (offset, length) = getPartitionInfo(partition)
+    RowIteratorFactory.getIterator(getReader(partition, offset, length),
                                    readSchema,
                                    params.get("format"))
   }

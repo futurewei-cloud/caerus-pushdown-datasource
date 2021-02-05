@@ -39,9 +39,9 @@ class ProcessorRequest(schema: String,
                        <Schema>{schema}</Schema>
                        <Query>{scala.xml.PCData(query)}</Query>
                        <BlockSize>{blockSize}</BlockSize>
-                       <FieldDelimiter>,</FieldDelimiter>
-                       <RowDelimiter>\n</RowDelimiter>
-                       <QuoteDelimiter>""</QuoteDelimiter>
+                       <FieldDelimiter>{','.toInt}</FieldDelimiter>
+                       <RowDelimiter>{'\n'.toInt}</RowDelimiter>
+                       <QuoteDelimiter>{'"'.toInt}</QuoteDelimiter>
                      </Configuration>
                    </Processor>
         val writer = new StringWriter

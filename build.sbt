@@ -13,6 +13,9 @@ scalaVersion := "2.12.10"
 
 val sparkVersion = "3.0.0"
 
+// We want to execute the tests serially.
+Global / concurrentRestrictions += Tags.limit(Tags.Test, 1)
+
 libraryDependencies ++= Seq(
   "com.amazonaws" % "aws-java-sdk" % "1.11.434" exclude("com.fasterxml.jackson.core", "jackson-databind"),
   "org.apache.commons" % "commons-csv" % "1.8",
@@ -22,9 +25,17 @@ libraryDependencies ++= Seq(
  )
 libraryDependencies += "org.scala-lang.modules" %% "scala-xml" % "2.0.0-M3"
 libraryDependencies += "org.scalatest" %% "scalatest" % "3.2.2" % "test"
+libraryDependencies += "org.apache.commons" % "commons-lang3" % "3.10" % "test"
 
 libraryDependencies ++= Seq(
   "org.scala-lang" % "scala-library" % scalaVersion.value % "compile",
+)
+// Libraries for the ndp client.
+libraryDependencies ++= Seq(
+  "org.apache.hadoop" % "hadoop-client" % "3.2.0",
+  "org.slf4j" % "slf4j-simple" % "1.7.21" % Test,
+  "org.apache.logging.log4j" % "log4j-api" % "2.14.0",
+  "org.apache.logging.log4j" % "log4j-core" % "2.14.0",
 )
 // githubOwner := "?"
 // githubRepository := "pushdown-datasource"

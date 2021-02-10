@@ -162,19 +162,21 @@ object Pushdown {
         } else {
           aggBuilder += s"MAX(${quoteEachCols(column)})"
         }
-      case Sum(column) =>
+      case Sum(column, isDistinct) =>
+        val distinct = if (isDistinct) "DISTINCT " else ""
         if (!column.contains("+") && !column.contains("-") && !column.contains("*")
           && !column.contains("/")) {
-          aggBuilder += s"SUM(${quote(column)})"
+          aggBuilder += s"SUM(${distinct}${quote(column)})"
         } else {
-          aggBuilder += s"SUM(${quoteEachCols(column)})"
+          aggBuilder += s"SUM(${distinct}${quoteEachCols(column)})"
         }
-      case Avg(column) =>
+      case Avg(column, isDistinct) =>
+        val distinct = if (isDistinct) "DISTINCT " else ""
         if (!column.contains("+") && !column.contains("-") && !column.contains("*")
           && !column.contains("/")) {
-          aggBuilder += s"AVG(${quote(column)})"
+          aggBuilder += s"AVG(${distinct}${quote(column)})"
         } else {
-          aggBuilder += s"AVG(${quoteEachCols(column)})"
+          aggBuilder += s"AVG(${distinct}${quoteEachCols(column)})"
         }
       case _ =>
     }
@@ -200,19 +202,23 @@ object Pushdown {
       columnNames.map(colName => quoteIdentifier(colName.toLowerCase(Locale.ROOT)))
     val colDataTypeMap: Map[String, StructField] = quotedColumns.zip(schema.fields).toMap
     val newColsBuilder = ArrayBuilder.make[String]
+    val newColsBuilderSchema = ArrayBuilder.make[String]
     var updatedSchema: StructType = new StructType()
     for (col <- compiledAgg) {
       newColsBuilder += col
+      newColsBuilderSchema += col.replace("DISTINCT ", "")
     }
     for (groupBy <- aggregation.groupByExpressions) {
       newColsBuilder += quoteIdentifier(groupBy)
+      newColsBuilderSchema += quoteIdentifier(groupBy)
     }
 
     val newColumns = newColsBuilder.result
     sb.append(", ").append(newColumns.mkString(", "))
 
+    val newColumnsSchema = newColsBuilderSchema.result
     // build new schemas
-    for (c <- newColumns) {
+    for (c <- newColumnsSchema) {
       val colName: Array[String] = if (!c.contains("+") && !c.contains("-") && !c.contains("*")
         && !c.contains("/")) {
         if (c.contains("MAX") || c.contains("MIN") || c.contains("SUM") || c.contains("AVG")) {

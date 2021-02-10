@@ -109,6 +109,16 @@ abstract class DataSourceV2Suite extends QueryTest with SharedSparkSession {
                                     " GROUP BY j"),
                 Seq(Row(12, 5, 3, 1), Row(8, 10, 4, 2)))
   }
+  test("aggregate distinct") {
+
+    spark.sparkContext.setLogLevel("INFO")
+    checkAnswer(sql("SELECT SUM(j) FROM integers WHERE i > 0"), Seq(Row(45)))
+    checkAnswer(sql("SELECT SUM(DISTINCT j) FROM integers WHERE i > 0"), Seq(Row(15)))
+    checkAnswer(sql("SELECT AVG(j) FROM integers"),
+                Seq(Row(7.14285714285714)))
+    checkAnswer(sql("SELECT AVG(DISTINCT j) FROM integers"),
+                Seq(Row(7.5)))
+  }
   test("aggregate multiple group by") {  
     checkAnswer(sql("SELECT k, sum(k * j), j, k FROM integers WHERE i > 1" +
                     " GROUP BY j, k"),

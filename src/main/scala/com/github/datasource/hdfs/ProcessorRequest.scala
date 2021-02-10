@@ -47,7 +47,7 @@ class ProcessorRequest(schema: String,
         val writer = new StringWriter
         XML.write(writer, root, "UTF-8", true, null)
         writer.flush()
-        println(writer.toString.replace("\n", "").replace("  ", ""))
+        //println(writer.toString.replace("\n", "").replace("  ", ""))
         writer.toString.replace("\n", "")
     }
 }

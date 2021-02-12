@@ -91,6 +91,16 @@ class HdfsStore(schema: StructType,
 
   override def toString() : String = "HdfsStore" + params + filters.mkString(", ")
   protected val path = params.get("path")
+  protected val isPushdownNeeded: Boolean = {
+    /* Determines if we should send the pushdown to ndp.
+     * If any of the pushdowns are in use (project, filter, aggregate),
+     * then we will consider that pushdown is needed.
+     */
+    ((prunedSchema.length != schema.length) ||
+     (filters.length > 0) ||
+     (pushedAggregation.aggregateExpressions.length > 0) ||
+     (pushedAggregation.groupByExpressions.length > 0))
+  }
   protected val endpoint = {
     val server = path.split("/")(2)
     if (path.contains("ndphdfs://")) {
@@ -149,7 +159,9 @@ class HdfsStore(schema: StructType,
                 startOffset: Long = 0, length: Long = 0): BufferedReader = {
     val filePath = new Path(partition.name)
     val readParam = {
-      if (fileSystemType != "ndphdfs" || params.containsKey("DisableProcessor")) {
+      if (fileSystemType != "ndphdfs" ||
+          !isPushdownNeeded ||
+          params.containsKey("DisableProcessor")) {
         ""
       } else {
         val (requestQuery, requestSchema) =  {
@@ -164,7 +176,13 @@ class HdfsStore(schema: StructType,
         new ProcessorRequest(requestSchema, requestQuery, partition.length).toXml
       }
     }
-    if (fileSystemType == "ndphdfs" && !params.containsKey("DisableProcessor")) {
+    /* When we are targeting ndphdfs, but we do not have a pushdown,
+     * we will not pass the processor element.
+     * This allows the NDP server to optimize further.
+     */
+    if (fileSystemType == "ndphdfs" && 
+        isPushdownNeeded &&
+        !params.containsKey("DisableProcessor")) {
         val fs = fileSystem.asInstanceOf[NdpHdfsFileSystem]
         val inStrm = fs.open(filePath, 4096, readParam).asInstanceOf[FSDataInputStream]
         inStrm.seek(partition.offset)
@@ -207,7 +225,9 @@ class HdfsStore(schema: StructType,
    */
   @throws(classOf[Exception])
   def getPartitionInfo(partition: HdfsPartition) : (Long, Long) = {
-    if (fileSystemType == "ndphdfs" && !params.containsKey("DisableProcessor")) {
+    if (fileSystemType == "ndphdfs" &&
+        isPushdownNeeded &&
+        params.containsKey("DisableProcessor")) {
       // No need to find offset, ndp server does this under the covers for us.
       // When Processor is disabled, we need to deal with partial lines for ourselves.
       return (partition.offset, partition.length)

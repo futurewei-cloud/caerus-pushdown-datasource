@@ -189,6 +189,9 @@ class HdfsStore(schema: StructType,
         new BufferedReader(new InputStreamReader(inStrm))
     } else {
         val inStrm = fileSystem.open(filePath)
+        if (fileSystemType == "ndphdfs") {
+          logger.info(s"No Pushdown to ${fileSystemType} partition: ${partition.toString}")
+        }
         inStrm.seek(startOffset) 
         new BufferedReader(new InputStreamReader(new BoundedInputStream(inStrm, length)))
     }

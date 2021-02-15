@@ -18,6 +18,9 @@
 package com.github.datasource.parse
 
 import java.io.BufferedReader
+import java.io.BufferedWriter
+import java.io.FileWriter
+import java.io.File
 import java.util.Locale
 import java.util
 
@@ -104,8 +107,14 @@ class RowIterator(rowReader: BufferedReader,
         fieldStart = fieldStart + 1 + fieldEnd + 2
       }
       val field = schema.fields(index)
-      row(index) = TypeCast.castTo(value, field.dataType,
-                                   field.nullable)
+      try {
+        row(index) = TypeCast.castTo(value, field.dataType,
+                                     field.nullable)
+      } catch {
+        case e: Throwable => println(s"Exception found parsing index: ${index} field: ${field.name} value: ${value}")
+                  println(s"line: ${line}")
+                  throw e
+      }
       index += 1
     }
     /* We will simply discard the row since
@@ -133,12 +142,29 @@ class RowIterator(rowReader: BufferedReader,
    *
    * @return the next InternalRow object or InternalRow.empty if none.
    */
+  private var rows: Long = 0
+  private var lastRow: InternalRow = InternalRow.empty
   private def getNextRow(): InternalRow = {
     var line: String = null
-    if ({line = rowReader.readLine(); line == null}) {
+    if ({line = rowReader.readLine(); (line == null)}) {
+      // println("last Part " + name + " total rows: " + RowIterator.getRows() + " rows: " + rows + 
+      //        " last row: " + lastRow.toString)
+      // if (RowIterator.getDebugWriter.isDefined) RowIterator.getDebugWriter.get.close
       InternalRow.empty
     } else {
-      parseLine(line)
+      val row = parseLine(line)
+      if (RowIterator.getDebugWriter.isDefined && row.numFields > 0) {
+        RowIterator.getDebugWriter.get.write(row.toString() + "\n")
+        RowIterator.getDebugWriter.get.flush
+        RowIterator.incRows()
+        rows += 1
+      } else if (row.numFields == 0) {
+        // println("Part" + name + " total rows: " + RowIterator.getRows() + " rows: " + rows + 
+        //        " last row: " + lastRow.toString)
+        // if (RowIterator.getDebugWriter.isDefined) RowIterator.getDebugWriter.get.close
+      }
+      lastRow = row
+      row
     }
   }
   /** Returns true if there are remaining rows.
@@ -157,5 +183,20 @@ class RowIterator(rowReader: BufferedReader,
     nextRow = getNextRow()
     row
   }
-  def close(): Unit = Unit
+  def close(): Unit = {}
+}
+
+object RowIterator {
+  private var debugFile: String = ""
+  private var totalRows: Long = 0
+  private var debugWriter: Option[FileWriter] = None
+  
+  def setDebugFile(file:String): Unit = {
+    debugFile = file
+    val outFile = new File(RowIterator.debugFile + ".txt")
+    debugWriter = Some(new FileWriter(outFile))
+  }
+  def getDebugWriter(): Option[FileWriter] = debugWriter
+  def incRows() : Unit = { totalRows += 1}
+  def getRows() : Long = totalRows
 }

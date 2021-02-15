@@ -35,7 +35,7 @@ import org.apache.hadoop.fs.BlockLocation
 import org.apache.hadoop.fs.Path
 import org.apache.hadoop.fs.FileSystem
 import org.apache.hadoop.fs.FSDataInputStream
-import org.apache.hadoop.hdfs.web.DikeHdfsFileSystem
+import org.apache.hadoop.hdfs.web.NdpHdfsFileSystem
 import org.apache.hadoop.hdfs.web.TokenAspect
 import org.slf4j.LoggerFactory
 
@@ -91,10 +91,20 @@ class HdfsStore(schema: StructType,
 
   override def toString() : String = "HdfsStore" + params + filters.mkString(", ")
   protected val path = params.get("path")
+  protected val isPushdownNeeded: Boolean = {
+    /* Determines if we should send the pushdown to ndp.
+     * If any of the pushdowns are in use (project, filter, aggregate),
+     * then we will consider that pushdown is needed.
+     */
+    ((prunedSchema.length != schema.length) ||
+     (filters.length > 0) ||
+     (pushedAggregation.aggregateExpressions.length > 0) ||
+     (pushedAggregation.groupByExpressions.length > 0))
+  }
   protected val endpoint = {
     val server = path.split("/")(2)
-    if (path.contains("dikehdfs://")) {
-      ("dikehdfs://" + server + ":9860")
+    if (path.contains("ndphdfs://")) {
+      ("ndphdfs://" + server + ":9860")
     } else if (path.contains("webhdfs://")) {
       ("webhdfs://" + server + ":9870")
     } else {
@@ -103,8 +113,8 @@ class HdfsStore(schema: StructType,
   }
   val filePath = {
     val server = path.split("/")(2)
-    if (path.contains("dikehdfs://")) {
-      val str = path.replace("dikehdfs://" + server, "dikehdfs://" + server + ":9860")
+    if (path.contains("ndphdfs://")) {
+      val str = path.replace("ndphdfs://" + server, "ndphdfs://" + server + ":9860")
       str
     } else if (path.contains("webhdfs")) {
       path.replace(server, server + ":9870")
@@ -124,11 +134,11 @@ class HdfsStore(schema: StructType,
     val conf = new Configuration()
     conf.set("dfs.datanode.drop.cache.behind.reads", "true")
     conf.set("dfs.client.cache.readahead", "0")
-    conf.set("fs.dikehdfs.impl", classOf[org.apache.hadoop.hdfs.web.DikeHdfsFileSystem].getName)
+    conf.set("fs.ndphdfs.impl", classOf[org.apache.hadoop.hdfs.web.NdpHdfsFileSystem].getName)
 
-    if (path.contains("http://dikehdfs")) {
+    if (path.contains("ndphdfs")) {
       val fs = FileSystem.get(URI.create(endpoint), conf)
-      fs.asInstanceOf[DikeHdfsFileSystem]
+      fs.asInstanceOf[NdpHdfsFileSystem]
     } else {
       FileSystem.get(URI.create(endpoint), conf)
     }
@@ -149,11 +159,13 @@ class HdfsStore(schema: StructType,
                 startOffset: Long = 0, length: Long = 0): BufferedReader = {
     val filePath = new Path(partition.name)
     val readParam = {
-      if (fileSystemType != "dikehdfs" || params.containsKey("DisableProcessor")) {
+      if (fileSystemType != "ndphdfs" ||
+          !isPushdownNeeded ||
+          params.containsKey("DisableProcessor")) {
         ""
       } else {
         val (requestQuery, requestSchema) =  {
-          if (fileSystemType == "dikehdfs") {
+          if (fileSystemType == "ndphdfs") {
             (Pushdown.queryFromSchema(schema, readSchema, readColumns,
                                       filters, pushedAggregation, partition),
             Pushdown.schemaString(schema))
@@ -164,13 +176,22 @@ class HdfsStore(schema: StructType,
         new ProcessorRequest(requestSchema, requestQuery, partition.length).toXml
       }
     }
-    if (fileSystemType == "dikehdfs" && !params.containsKey("DisableProcessor")) {
-        val fs = fileSystem.asInstanceOf[DikeHdfsFileSystem]
+    /* When we are targeting ndphdfs, but we do not have a pushdown,
+     * we will not pass the processor element.
+     * This allows the NDP server to optimize further.
+     */
+    if (fileSystemType == "ndphdfs" && 
+        isPushdownNeeded &&
+        !params.containsKey("DisableProcessor")) {
+        val fs = fileSystem.asInstanceOf[NdpHdfsFileSystem]
         val inStrm = fs.open(filePath, 4096, readParam).asInstanceOf[FSDataInputStream]
         inStrm.seek(partition.offset)
         new BufferedReader(new InputStreamReader(inStrm))
     } else {
         val inStrm = fileSystem.open(filePath)
+        if (fileSystemType == "ndphdfs") {
+          logger.info(s"No Pushdown to ${fileSystemType} partition: ${partition.toString}")
+        }
         inStrm.seek(startOffset) 
         new BufferedReader(new InputStreamReader(new BoundedInputStream(inStrm, length)))
     }
@@ -207,9 +228,11 @@ class HdfsStore(schema: StructType,
    */
   @throws(classOf[Exception])
   def getPartitionInfo(partition: HdfsPartition) : (Long, Long) = {
-    if (fileSystemType == "dikehdfs" && !params.containsKey("DisableProcessor")) {
-      // No need to find offset, dike server does this under the covers for us.
-      // When DikeProcessor is disabled, we need to deal with partial lines for ourselves.
+    if (fileSystemType == "ndphdfs" &&
+        isPushdownNeeded &&
+        params.containsKey("DisableProcessor")) {
+      // No need to find offset, ndp server does this under the covers for us.
+      // When Processor is disabled, we need to deal with partial lines for ourselves.
       return (partition.offset, partition.length)
     }
     val currentPath = new Path(filePath)
@@ -271,7 +294,7 @@ object HdfsStore {
    * @return true if pushdown supported, false otherwise.
    */
   def pushdownSupported(options: util.Map[String, String]): Boolean = {
-    if (options.get("path").contains("dikehdfs://")) {
+    if (options.get("path").contains("ndphdfs://")) {
       true
     } else {
       // other filesystems like hdfs and webhdfs do not support pushdown.

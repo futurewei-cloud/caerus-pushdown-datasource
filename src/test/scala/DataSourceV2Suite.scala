@@ -14,25 +14,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-//package org.apache.spark.sql.jdbc
 package com.github.datasource.test
 
-import java.sql.{Connection, DriverManager}
-import java.util.Properties
-
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.{QueryTest, Row}
-import org.apache.spark.sql.catalyst.analysis.CannotReplaceMissingTableException
-import org.apache.spark.sql.catalyst.plans.logical.Filter
-import org.apache.spark.sql.functions.lit
+import org.apache.spark.sql.{DataFrame, QueryTest, Row}
 import org.apache.spark.sql.test.SharedSparkSession
-import org.apache.spark.util.Utils
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.{DataFrame, Row, SQLContext}
 
-class DataSourceV2Suite extends QueryTest with SharedSparkSession {
+/** Is a test suite for the V2 datasource.
+ *  This test is regardless of API so that this class can be
+ *  extended with an overloaded df method to allow multiple types of
+ *  configurations to use the same tests.
+ *
+ */
+abstract class DataSourceV2Suite extends QueryTest with SharedSparkSession {
   import testImplicits._
   private val s3IpAddr = "minioserver"
   override def sparkConf: SparkConf = super.sparkConf
@@ -40,18 +36,19 @@ class DataSourceV2Suite extends QueryTest with SharedSparkSession {
       .set("spark.datasource.pushdown.accessKey", "admin")
       .set("spark.datasource.pushdown.secretKey", "admin123")
 
-  private val schema = new StructType()
+  protected val schema = new StructType()
        .add("i",IntegerType,true)
        .add("j",IntegerType,true)
        .add("k",IntegerType,true)
 
-  private def df() : DataFrame = {    
-    spark.read
-      .format("com.github.datasource")
-      .schema(schema)
-      .option("format", "csv")
-      .load("s3a://spark-test/ints.tbl")
-  }
+  /** returns a dataframe object, which is to be used for testing of
+   *  each test case in this suite.
+   *  This can be overloaded in a new suite, which defines 
+   *  its own data frame.
+   *
+   * @return DataFrame - The new dataframe object to be used in testing.
+   */
+  protected def df() : DataFrame
 
   override def beforeAll(): Unit = {
     super.beforeAll()
@@ -62,7 +59,6 @@ class DataSourceV2Suite extends QueryTest with SharedSparkSession {
   override def afterAll(): Unit = {
     super.afterAll()
   }
-
   test("simple scan") {
     checkAnswer(df, Seq(Row(0, 5, 1), Row(1, 10, 2), Row(2, 5, 1),
                         Row(3, 10, 2), Row(4, 5, 1), Row(5, 10, 2), Row(6, 5, 1)))
@@ -112,6 +108,14 @@ class DataSourceV2Suite extends QueryTest with SharedSparkSession {
     checkAnswer(sql("SELECT sum(i), j, sum(k), min(k) FROM integers WHERE i > 1" +
                                     " GROUP BY j"),
                 Seq(Row(12, 5, 3, 1), Row(8, 10, 4, 2)))
+  }
+  test("aggregate distinct") {
+    checkAnswer(sql("SELECT SUM(j) FROM integers WHERE i > 0"), Seq(Row(45)))
+    checkAnswer(sql("SELECT SUM(DISTINCT j) FROM integers WHERE i > 0"), Seq(Row(15)))
+    checkAnswer(sql("SELECT AVG(j) FROM integers"),
+                Seq(Row(7.14285714285714)))
+    checkAnswer(sql("SELECT AVG(DISTINCT j) FROM integers"),
+                Seq(Row(7.5)))
   }
   test("aggregate multiple group by") {  
     checkAnswer(sql("SELECT k, sum(k * j), j, k FROM integers WHERE i > 1" +

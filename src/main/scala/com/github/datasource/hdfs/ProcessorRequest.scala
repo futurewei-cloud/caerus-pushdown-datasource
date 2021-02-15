@@ -39,15 +39,15 @@ class ProcessorRequest(schema: String,
                        <Schema>{schema}</Schema>
                        <Query>{scala.xml.PCData(query)}</Query>
                        <BlockSize>{blockSize}</BlockSize>
-                       <FieldDelimiter>,</FieldDelimiter>
-                       <RowDelimiter>\n</RowDelimiter>
-                       <QuoteDelimiter>""</QuoteDelimiter>
+                       <FieldDelimiter>{','.toInt}</FieldDelimiter>
+                       <RowDelimiter>{'\n'.toInt}</RowDelimiter>
+                       <QuoteDelimiter>{'"'.toInt}</QuoteDelimiter>
                      </Configuration>
                    </Processor>
         val writer = new StringWriter
         XML.write(writer, root, "UTF-8", true, null)
         writer.flush()
-        println(writer.toString.replace("\n", "").replace("  ", ""))
+        //println(writer.toString.replace("\n", "").replace("  ", ""))
         writer.toString.replace("\n", "")
     }
 }

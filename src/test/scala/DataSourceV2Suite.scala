@@ -75,9 +75,10 @@ abstract class DataSourceV2Suite extends QueryTest with SharedSparkSession {
                 Seq(Row(5,10,2),Row(6,5,1)))
   }
   test("basic aggregate") {
+    //spark.sparkContext.setLogLevel("INFO")
     checkAnswer(df.filter("i > 4")
                   .agg(sum("i") * sum("j")),
-                 Seq(Row(165)))
+                Seq(Row(165)))
     checkAnswer(df.agg(sum("j")),
                 Seq(Row(50)))
     checkAnswer(df.agg(min("k"), max("k")),

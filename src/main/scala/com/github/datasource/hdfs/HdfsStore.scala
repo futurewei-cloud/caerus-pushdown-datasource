@@ -159,8 +159,8 @@ class HdfsStore(schema: StructType,
                 startOffset: Long = 0, length: Long = 0): BufferedReader = {
     val filePath = new Path(partition.name)
     val readParam = {
-      if (fileSystemType != "ndphdfs" ||
-          !isPushdownNeeded ||
+      if (!isPushdownNeeded ||
+          fileSystemType != "ndphdfs" ||
           params.containsKey("DisableProcessor")) {
         ""
       } else {
@@ -180,8 +180,8 @@ class HdfsStore(schema: StructType,
      * we will not pass the processor element.
      * This allows the NDP server to optimize further.
      */
-    if (fileSystemType == "ndphdfs" && 
-        isPushdownNeeded &&
+    if (isPushdownNeeded &&
+        fileSystemType == "ndphdfs" &&
         !params.containsKey("DisableProcessor")) {
         val fs = fileSystem.asInstanceOf[NdpHdfsFileSystem]
         val inStrm = fs.open(filePath, 4096, readParam).asInstanceOf[FSDataInputStream]

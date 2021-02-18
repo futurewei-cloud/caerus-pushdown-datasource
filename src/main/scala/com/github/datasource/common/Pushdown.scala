@@ -360,8 +360,8 @@ object Pushdown {
     } else {
       retVal = s"SELECT $columnList FROM $objectClause s $whereClause $groupByClause"
     }
-    logger.info(s"""SQL Query partition (${partition.toString}):
-                 |${retVal}""".stripMargin);
+    logger.info(s"SQL Query partition: ${partition.toString}")
+    logger.info(s"SQL Query: ${retVal}")
     retVal
   }
   /** Returns a string to represent the schema of the table.

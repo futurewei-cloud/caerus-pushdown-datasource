@@ -35,7 +35,7 @@ import org.apache.hadoop.fs.BlockLocation
 import org.apache.hadoop.fs.Path
 import org.apache.hadoop.fs.FileSystem
 import org.apache.hadoop.fs.FSDataInputStream
-import org.apache.hadoop.hdfs.web.NdpHdfsFileSystem
+import org.dike.hdfs.NdpHdfsFileSystem
 import org.apache.hadoop.hdfs.web.TokenAspect
 import org.slf4j.LoggerFactory
 
@@ -134,7 +134,7 @@ class HdfsStore(schema: StructType,
     val conf = new Configuration()
     conf.set("dfs.datanode.drop.cache.behind.reads", "true")
     conf.set("dfs.client.cache.readahead", "0")
-    conf.set("fs.ndphdfs.impl", classOf[org.apache.hadoop.hdfs.web.NdpHdfsFileSystem].getName)
+    conf.set("fs.ndphdfs.impl", classOf[org.dike.hdfs.NdpHdfsFileSystem].getName)
 
     if (path.contains("ndphdfs")) {
       val fs = FileSystem.get(URI.create(endpoint), conf)

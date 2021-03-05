@@ -63,7 +63,7 @@ class DefaultSource extends TableProvider
   override def keyPrefix(): String = {
     "pushdown"
   }
-  override def shortName(): String = "pushdownDatasource"
+  override def shortName(): String = "pushdown"
 }
 
 /** Creates a Table object that supports pushdown predicates
@@ -186,7 +186,13 @@ class PushdownScanBuilder(schema: StructType,
   def aggregatePushdownValid(aggregation: Aggregation) = {
     val (compiledAgg, aggDataType) = 
       Pushdown.compileAggregates(aggregation.aggregateExpressions)
-    (compiledAgg.isEmpty == false)
+
+    /* Make sure the length of the compiled aggregate matches
+     * the original aggregate, or it might be possible that
+     * some aggregations were not able to be compiled.
+     */
+    (compiledAgg.isEmpty == false) // &&
+    // (compiledAgg.get).length == aggregation.length)
   }
   /** Will push down a list of aggregates to be saved and sent to
    *  the endpoint on all reads.

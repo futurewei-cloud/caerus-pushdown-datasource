@@ -181,6 +181,19 @@ object Pushdown {
         } else {
           aggBuilder += s"AVG(${distinct}${quoteEachCols(column)})"
         }
+      case Count(column, dataType, isDistinct) =>
+        val distinct = if (isDistinct) "DISTINCT " else ""
+        dataTypeBuilder += dataType
+        if (isDistinct && column.split(",").size > 1) {
+          //aggBuilder += s"COUNT(*) (SELECT DISTINCT ${quote(column)} FROM S3Object"
+          aggBuilder += s"COUNT(${distinct}${quote(column)})"
+          } else {
+          if (!containsArithmeticOp(column)) {
+            aggBuilder += s"COUNT(${distinct}${quote(column)})"
+          } else {
+            aggBuilder += s"COUNT(${distinct}${quoteEachCols(column)})"
+          }
+        }
       case _ =>
     }
     (aggBuilder.result, dataTypeBuilder.result)

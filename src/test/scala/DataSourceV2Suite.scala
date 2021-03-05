@@ -142,4 +142,88 @@ abstract class DataSourceV2Suite extends QueryTest with SharedSparkSession {
                     " GROUP BY j"),
                 Seq(Row(18),Row(24)))
   }
+
+  /*  sparkSession.sql("SELECT count(*) FROM integers").show()
+    sparkSession.sql("SELECT count(i) FROM integers WHERE j = 15").show()
+    sparkSession.sql("SELECT count(k) FROM integers WHERE j = 5").show()
+    sparkSession.sql("SELECT count(j) FROM integers WHERE k = 2").show()
+    sparkSession.sql("SELECT count(k) FROM integers WHERE k = 2 OR j = 5").show()
+    sparkSession.sql("SELECT count(k,j) FROM integers WHERE k = 2 OR j = 5").show()
+    df.groupBy("k").agg(count("j"), count("i")).show()
+    df.agg(countDistinct("j", "k"), countDistinct("i"), countDistinct("i","j")).show()
+    df.agg(countDistinct("i", "j", "k")).show() */
+  test ("aggregate count") {
+    checkAnswer(sql("SELECT count(*) FROM integers"),
+                Seq(Row(7)))
+    checkAnswer(sql("SELECT count(i) FROM integers"),
+                Seq(Row(7)))
+    checkAnswer(sql("SELECT count(i) as count_of_i FROM integers"),
+                Seq(Row(7)))
+    checkAnswer(sql("SELECT count(j) FROM integers"),
+                Seq(Row(7)))
+    checkAnswer(sql("SELECT count(k) FROM integers WHERE j = 5"),
+                Seq(Row(4)))
+    checkAnswer(sql("SELECT count(i) FROM integers WHERE j = 15"),
+                Seq(Row(0)))
+    checkAnswer(sql("SELECT count(k) FROM integers WHERE k = 2"),
+                Seq(Row(3)))
+    checkAnswer(sql("SELECT count(k) FROM integers WHERE k = 2 OR j=5"),
+                Seq(Row(7)))
+  }
+  test ("aggregate count group by") {
+    checkAnswer(sql("SELECT count(j) FROM integers" +
+                    " GROUP BY j"),
+                Seq(Row(3),Row(4)))
+    checkAnswer(sql("SELECT count(j), k FROM integers" +
+                    " GROUP BY k"),
+                Seq(Row(4, 1), Row(3, 2)))
+    checkAnswer(sql("SELECT k, count(j) FROM integers" +
+                    " GROUP BY k"),
+                Seq(Row(1, 4), Row(2, 3)))
+    checkAnswer(sql("SELECT count(j), count(i) FROM integers" +
+                    " GROUP BY j"),
+                Seq(Row(4, 4),Row(3, 3)))
+    checkAnswer(sql("SELECT j, count(j), count(i) FROM integers" +
+                    " GROUP BY j"),
+                Seq(Row(5, 4, 4),Row(10, 3, 3)))
+    checkAnswer(df.groupBy("k").agg(count("j")),
+                Seq(Row(1, 4), Row(2, 3)))
+    checkAnswer(df.groupBy("k").agg(count("j"), count("i")),
+                Seq(Row(1, 4, 4), Row(2, 3, 3)))
+  }
+
+  test ("aggregate count distinct") {
+    checkAnswer(sql("SELECT count(DISTINCT i) FROM integers"),
+                Seq(Row(7)))
+    checkAnswer(sql("SELECT count(DISTINCT j) FROM integers"),
+                Seq(Row(2)))
+    checkAnswer(sql("SELECT count(DISTINCT k) FROM integers"),
+                Seq(Row(2)))
+    checkAnswer(sql("SELECT count(DISTINCT k, j) FROM integers"),
+                Seq(Row(2)))
+    checkAnswer(sql("SELECT count(DISTINCT i, j) FROM integers"),
+                Seq(Row(7)))
+    checkAnswer(sql("SELECT count(DISTINCT i, k) FROM integers"),
+                Seq(Row(7)))
+    checkAnswer(sql("SELECT count(DISTINCT i, j, k) FROM integers"),
+                Seq(Row(7)))
+    checkAnswer(sql("SELECT k, count(DISTINCT j) FROM integers" +
+                    " GROUP BY k"),
+                Seq(Row(2, 1),Row(1, 1)))
+    checkAnswer(sql("SELECT count(DISTINCT j), k FROM integers" +
+                    " GROUP BY k"),
+                Seq(Row(1, 2),Row(1, 1)))
+    checkAnswer(df.agg(countDistinct("j")),
+                Seq(Row(2)))
+    checkAnswer(df.agg(countDistinct("i")),
+                Seq(Row(7)))
+    checkAnswer(df.agg(countDistinct("j", "k")),
+                Seq(Row(2)))
+    checkAnswer(df.agg(countDistinct("i","j", "k")),
+                Seq(Row(7)))
+    checkAnswer(df.agg(countDistinct("j","i")),
+                Seq(Row(7)))
+    checkAnswer(df.agg(countDistinct("j", "k"), countDistinct("i"), countDistinct("j","i")),
+                Seq(Row(2, 7, 7)))
+  }
 }

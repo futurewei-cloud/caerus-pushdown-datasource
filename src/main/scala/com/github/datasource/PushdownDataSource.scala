@@ -183,7 +183,11 @@ class PushdownScanBuilder(schema: StructType,
       }
     }
   }
-
+  def aggregatePushdownValid(aggregation: Aggregation) = {
+    val (compiledAgg, aggDataType) = 
+      Pushdown.compileAggregates(aggregation.aggregateExpressions)
+    (compiledAgg.isEmpty == false)
+  }
   /** Will push down a list of aggregates to be saved and sent to
    *  the endpoint on all reads.
    *  Note that "DisableAggregatePush" option will prevent any pushes.
@@ -193,7 +197,7 @@ class PushdownScanBuilder(schema: StructType,
   override def pushAggregation(aggregation: Aggregation): Unit = {
     if (pushdownSupported() &&
         !options.containsKey("DisableAggregatePush") &&
-        (!Pushdown.compileAggregates(aggregation.aggregateExpressions).isEmpty) ) {
+        aggregatePushdownValid(aggregation)) {
       pushedAggregations = aggregation
     }
   }

@@ -29,12 +29,12 @@ import scala.collection.JavaConverters._
 import scala.collection.mutable.{ArrayBuffer, ListBuffer}
 import scala.util.control.NonFatal
 
+import com.amazonaws.ClientConfiguration
 import com.amazonaws.auth.{AWSStaticCredentialsProvider, BasicAWSCredentials}
 import com.amazonaws.auth.AWSCredentials
 import com.amazonaws.auth.AWSCredentialsProvider
 import com.amazonaws.client.builder.AwsClientBuilder
 import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration
-import com.amazonaws.ClientConfiguration
 import com.amazonaws.regions.Regions
 import com.amazonaws.services.s3.AmazonS3
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
@@ -48,7 +48,7 @@ import com.amazonaws.services.s3.model.SelectRecordsInputStream
 import com.github.datasource.common.Pushdown
 import com.github.datasource.common.Select
 import com.github.datasource.common.TypeCast
-
+import com.github.datasource.parse.RowIteratorFactory
 import org.apache.commons.csv._
 import org.apache.commons.io.IOUtils
 import org.slf4j.LoggerFactory
@@ -65,7 +65,6 @@ import org.apache.spark.sql.sources.{Aggregation, Filter}
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 import org.apache.spark.unsafe.types.UTF8String
-import com.github.datasource.parse.RowIteratorFactory
 
 /** A Factory to fetch the correct type of
  *  store object depending on the expected output type
@@ -138,7 +137,7 @@ abstract class S3Store(schema: StructType,
     .build()
   protected val (readColumns: String,
                  readSchema: StructType) = {
-    var (columns, updatedSchema) = 
+    var (columns, updatedSchema) =
       Pushdown.getColumnSchema(pushedAggregation, prunedSchema)
     (columns,
      if (updatedSchema.names.isEmpty) schema else updatedSchema)
@@ -337,7 +336,7 @@ class S3StoreCSV(var schema: StructType,
     }
     logger.info("getRows() partition: " + partition.index + " total rows:" + index)
     parser.close()
-    //logger.info(records.mkString(", "))
+    // logger.info(records.mkString(", "))
     records
   }
   logger.trace("S3StoreCSV: schema " + schema)
@@ -356,7 +355,7 @@ class S3StoreJSON(schema: StructType,
   extends S3Store(schema, params, filters, prunedSchema, pushedAggregation) {
 
   override def toString() : String = "S3StoreJSON" + params + filters.mkString(", ")
-  
+
   def getReader(partition: S3Partition): BufferedReader = {
     var params: Map[String, String] = Map("" -> "")
     val (columns, updatedSchema) =
@@ -380,7 +379,6 @@ class S3StoreJSON(schema: StructType,
                               filters,
                               pushedAggregation,
                               partition)
-                              
       ).getPayload().getRecordsInputStream()))
   }
   // TBD for JSON, stubbed out for now.
@@ -453,7 +451,7 @@ class S3StoreParquet(schema: StructType,
   extends S3Store(schema, params, filters, prunedSchema, pushedAggregation) {
 
   override def toString() : String = "S3StoreParquet" + params + filters.mkString(", ")
-  
+
   def getReader(partition: S3Partition): BufferedReader = {
     var params: Map[String, String] = Map("" -> "")
     val (columns, updatedSchema) =
@@ -476,7 +474,7 @@ class S3StoreParquet(schema: StructType,
                               columns,
                               filters,
                               pushedAggregation,
-                              partition)                              
+                              partition)
       ).getPayload().getRecordsInputStream()))
   }
   // TBD for parquet, stubbed out for now.
@@ -565,5 +563,5 @@ object S3Store {
     } else {
       false
     }
-  } 
+  }
 }

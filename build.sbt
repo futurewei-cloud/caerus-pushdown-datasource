@@ -2,13 +2,6 @@ name := "pushdown-datasource"
 
 organization := ""
 version := "0.1.0"
-// githubOwner := "?"
-// githubRepository := "pushdown-datasource"
-// githubTokenSource := TokenSource.Environment("GITHUB_TOKEN")
-
-// pushRemoteCacheConfiguration := pushRemoteCacheConfiguration.value.withOverwrite(true)
-// publishConfiguration := publishConfiguration.value.withOverwrite(true)
-// publishLocalConfiguration := publishLocalConfiguration.value.withOverwrite(true)
 scalaVersion := "2.12.10"
 
 val sparkVersion = "3.0.0"
@@ -37,27 +30,17 @@ libraryDependencies ++= Seq(
   "org.apache.logging.log4j" % "log4j-api" % "2.14.0",
   "org.apache.logging.log4j" % "log4j-core" % "2.14.0",
 )
-// githubOwner := "?"
-// githubRepository := "pushdown-datasource"
-// credentials += Credentials(
-//           "GitHub Package Registry",
-//           "maven.pkg.github.com",
-//           //sys.env.get("GITHUB_ACTOR").getOrElse("N/A"),
-//          "?",
-//          sys.env.getOrElse("GITHUB_TOKEN", "c164a97693d4694b8b4a05477f154dfc2ea0eafb")        
-//        )
-// githubTokenSource := Some(TokenSource.GitConfig("token"))
+lazy val compileScalastyle = taskKey[Unit]("compileScalastyle")
 
+// scalastyle >= 0.9.0
+compileScalastyle := scalastyle.in(Compile).toTask("").value
 
-// val GlobalSettingsGroup: Seq[Setting[_]] = Seq(
-//      githubOwner := "?",
-//      githubRepository := "pushdown-datasource",
-//      credentials +=
-//        Credentials(
-//          "GitHub Package Registry",
-//          "maven.pkg.github.com",
-//          sys.env.get("GITHUB_ACTOR").getOrElse("N/A"),
-//          sys.env.getOrElse("GITHUB_TOKEN", "N/A")
-//        ),
-  //scala version, organization, version etc are also here
-//)
+(compile in Compile) := ((compile in Compile) dependsOn compileScalastyle).value
+
+// Create a default Scala style task to run with tests
+lazy val testScalastyle = taskKey[Unit]("testScalastyle")
+
+// scalastyle >= 0.9.0
+testScalastyle := scalastyle.in(Test).toTask("").value
+
+(test in Test) := ((test in Test) dependsOn testScalastyle).value

@@ -21,13 +21,13 @@ import java.util
 import scala.collection.JavaConverters._
 import scala.collection.mutable.{ArrayBuffer}
 
+import org.apache.hadoop.fs.BlockLocation
 import org.slf4j.LoggerFactory
 
-import org.apache.hadoop.fs.BlockLocation
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.connector.read._
-import org.apache.spark.sql.sources.Aggregation
 import org.apache.spark.sql.sources._
+import org.apache.spark.sql.sources.Aggregation
 import org.apache.spark.sql.types._
 
 /** A scan object that works on HDFS files.
@@ -53,24 +53,28 @@ class HdfsScan(schema: StructType,
   private val maxPartSize: Long = (1024 * 1024 * 128)
   private var partitions: Array[InputPartition] = getPartitions()
 
-  private def createPartitions(blockList: Array[BlockLocation],
-                               fileName: String,
+  private def createPartitions(blockMap: Map[String, Array[BlockLocation]],
                                store: HdfsStore): Array[InputPartition] = {
     var a = new ArrayBuffer[InputPartition](0)
     var i = 0
     if (options.containsKey("partitions") &&
           options.get("partitions").toInt == 1) {
-      a += new HdfsPartition(index = 0, offset = 0, length = store.getLength(fileName),
-                             name = fileName)
+      // Generate one partition per file
+      for ((fName, blockList) <- blockMap) {
+        a += new HdfsPartition(index = 0, offset = 0, length = store.getLength(fName),
+                               name = fName)
+      }
     } else {
-      // Generate one partition per hdfs block.
-      for (block <- blockList) {
-        a += new HdfsPartition(index = i, offset = block.getOffset, length = block.getLength,
-                               name = fileName)
-        i += 1
+      // Generate one partition per file, per hdfs block
+      for ((fName, blockList) <- blockMap) {
+        // Generate one partition per hdfs block.
+        for (block <- blockList) {
+          a += new HdfsPartition(index = i, offset = block.getOffset, length = block.getLength,
+                                 name = fName)
+          i += 1
+        }
       }
     }
-    //logger.info(a.mkString(" "))
     a.toArray
   }
   /** Returns an Array of S3Partitions for a given input file.
@@ -85,9 +89,9 @@ class HdfsScan(schema: StructType,
     var store: HdfsStore = HdfsStoreFactory.getStore(schema, options,
                                                      filters, prunedSchema,
                                                      pushedAggregation)
-    val fileName = store.filePath                                              
-    val blocks : Array[BlockLocation] = store.getBlockList(fileName)
-    createPartitions(blocks, fileName, store)
+    val fileName = store.filePath
+    val blocks : Map[String, Array[BlockLocation]] = store.getBlockList(fileName)
+    createPartitions(blocks, store)
   }
 
   override def planInputPartitions(): Array[InputPartition] = {
@@ -116,7 +120,7 @@ class HdfsPartitionReaderFactory(schema: StructType,
   private val logger = LoggerFactory.getLogger(getClass)
   logger.trace("Created")
   override def createReader(partition: InputPartition): PartitionReader[InternalRow] = {
-    new HdfsPartitionReader(schema, options, filters, 
+    new HdfsPartitionReader(schema, options, filters,
                           prunedSchema, partition.asInstanceOf[HdfsPartition],
                           pushedAggregation)
   }
@@ -144,7 +148,7 @@ class HdfsPartitionReader(schema: StructType,
   /* We setup a rowIterator and then read/parse
    * each row as it is asked for.
    */
-  private var store: HdfsStore = HdfsStoreFactory.getStore(schema, options, 
+  private var store: HdfsStore = HdfsStoreFactory.getStore(schema, options,
                                                            filters, prunedSchema,
                                                            pushedAggregation)
   private var rowIterator: Iterator[InternalRow] = store.getRowIter(partition)
@@ -157,8 +161,8 @@ class HdfsPartitionReader(schema: StructType,
     val row = rowIterator.next
     if (((index % 500000) == 0) ||
         (!next)) {
-      logger.info(s"""get: partition: ${partition.index} ${partition.offset} ${partition.length}""" + 
-                  s""" ${partition.name} index: ${index}""")
+      logger.info(s"get: partition: ${partition.index} ${partition.offset}" +
+                  s" ${partition.length} ${partition.name} index: ${index}")
     }
     index = index + 1
     row

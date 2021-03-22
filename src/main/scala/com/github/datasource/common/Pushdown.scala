@@ -140,7 +140,7 @@ object Pushdown {
   }
   private def containsArithmeticOp(col: String): Boolean =
     col.contains("+") || col.contains("-") || col.contains("*") || col.contains("/")
-  
+
   /** Returns an array of aggregates translated to strings.
    *
    * @param aggregates the array of aggregates to translate
@@ -281,7 +281,7 @@ object Pushdown {
    * @return String representing the table's columns.
    */
   def schemaString(schema: StructType): String = {
-    
+
     schema.fields.map(x => {
       val dataTypeString = {
         x.dataType match {

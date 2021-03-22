@@ -21,7 +21,7 @@ import java.util
 import scala.collection.JavaConverters._
 
 import com.github.datasource.common.Pushdown
-import com.github.datasource.hdfs.HdfsStore
+import com.github.datasource.hdfs.{HdfsScan, HdfsStore}
 import com.github.datasource.s3.{S3Scan, S3Store}
 import org.slf4j.LoggerFactory
 
@@ -29,13 +29,11 @@ import org.apache.spark.sql.connector.catalog.{SessionConfigSupport, SupportsRea
                                                Table, TableCapability, TableProvider}
 import org.apache.spark.sql.connector.expressions.Transform
 import org.apache.spark.sql.connector.read._
-import org.apache.spark.sql.sources.DataSourceRegister
-import org.apache.spark.sql.sources.Aggregation
 import org.apache.spark.sql.sources._
+import org.apache.spark.sql.sources.Aggregation
+import org.apache.spark.sql.sources.DataSourceRegister
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
-
-import com.github.datasource.hdfs.HdfsScan
 
 /** Creates a data source object for Spark that
  *  supports pushdown of predicates such as Filter, Project and Aggregate.
@@ -183,8 +181,8 @@ class PushdownScanBuilder(schema: StructType,
       }
     }
   }
-  def aggregatePushdownValid(aggregation: Aggregation) = {
-    val (compiledAgg, aggDataType) = 
+  def aggregatePushdownValid(aggregation: Aggregation): Boolean = {
+    val (compiledAgg, aggDataType) =
       Pushdown.compileAggregates(aggregation.aggregateExpressions)
     (compiledAgg.isEmpty == false)
   }

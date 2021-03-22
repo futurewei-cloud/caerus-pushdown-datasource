@@ -18,9 +18,9 @@ package com.github.datasource.test
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{DataFrame, QueryTest, Row}
+import org.apache.spark.sql.functions._
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.functions._
 
 /** Is a test suite for the V2 datasource.
  *  This test is regardless of API so that this class can be
@@ -37,13 +37,13 @@ abstract class DataSourceV2Suite extends QueryTest with SharedSparkSession {
       .set("spark.datasource.pushdown.secretKey", "admin123")
 
   protected val schema = new StructType()
-       .add("i",IntegerType,true)
-       .add("j",IntegerType,true)
-       .add("k",IntegerType,true)
+       .add("i", IntegerType, true)
+       .add("j", IntegerType, true)
+       .add("k", IntegerType, true)
 
   /** returns a dataframe object, which is to be used for testing of
    *  each test case in this suite.
-   *  This can be overloaded in a new suite, which defines 
+   *  This can be overloaded in a new suite, which defines
    *  its own data frame.
    *
    * @return DataFrame - The new dataframe object to be used in testing.
@@ -62,20 +62,20 @@ abstract class DataSourceV2Suite extends QueryTest with SharedSparkSession {
   test("simple scan") {
     checkAnswer(df, Seq(Row(0, 5, 1), Row(1, 10, 2), Row(2, 5, 1),
                         Row(3, 10, 2), Row(4, 5, 1), Row(5, 10, 2), Row(6, 5, 1)))
-    df.show()    
+    df.show()
   }
   test("simple project") {
-    checkAnswer(df.select("i","j","k"),
+    checkAnswer(df.select("i", "j", "k"),
                 Seq(Row(0, 5, 1), Row(1, 10, 2), Row(2, 5, 1),
                        Row(3, 10, 2), Row(4, 5, 1), Row(5, 10, 2), Row(6, 5, 1)))
-    checkAnswer(df.select("i","j"),
+    checkAnswer(df.select("i", "j"),
                 Seq(Row(0, 5), Row(1, 10), Row(2, 5),
                        Row(3, 10), Row(4, 5), Row(5, 10), Row(6, 5)))
     checkAnswer(df.filter("i >= 5"),
-                Seq(Row(5,10,2),Row(6,5,1)))
+                Seq(Row(5, 10, 2), Row(6, 5, 1)))
   }
   test("basic aggregate") {
-    //spark.sparkContext.setLogLevel("INFO")
+    // spark.sparkContext.setLogLevel("INFO")
     checkAnswer(df.filter("i > 4")
                   .agg(sum("i") * sum("j")),
                 Seq(Row(165)))
@@ -118,28 +118,28 @@ abstract class DataSourceV2Suite extends QueryTest with SharedSparkSession {
     checkAnswer(sql("SELECT AVG(DISTINCT j) FROM integers"),
                 Seq(Row(7.5)))
   }
-  test("aggregate multiple group by") {  
+  test("aggregate multiple group by") {
     checkAnswer(sql("SELECT k, sum(k * j), j, k FROM integers WHERE i > 1" +
                     " GROUP BY j, k"),
-                Seq(Row(1, 15, 5, 1),Row(2, 40, 10, 2)))
+                Seq(Row(1, 15, 5, 1), Row(2, 40, 10, 2)))
   }
 
   test ("aggregate with expressions") {
 
     checkAnswer(sql("SELECT sum(k * j) FROM integers WHERE i > 1" +
                     " GROUP BY j"),
-                Seq(Row(15),Row(40)))
+                Seq(Row(15), Row(40)))
     checkAnswer(sql("SELECT j, sum(k * j) FROM integers WHERE i > 1" +
                     " GROUP BY j"),
-                Seq(Row(5, 15),Row(10, 40)))
+                Seq(Row(5, 15), Row(10, 40)))
     checkAnswer(sql("SELECT sum(k * j), j FROM integers WHERE i > 1" +
                     " GROUP BY j"),
-                Seq(Row(15, 5),Row(40, 10)))
+                Seq(Row(15, 5), Row(40, 10)))
     checkAnswer(sql("SELECT j, sum(i * k) FROM integers WHERE i != 6" +
                     " GROUP BY j"),
-                Seq(Row(5, 6),Row(10, 18)))
+                Seq(Row(5, 6), Row(10, 18)))
     checkAnswer(sql("SELECT sum(k + j) FROM integers WHERE i > 1" +
                     " GROUP BY j"),
-                Seq(Row(18),Row(24)))
+                Seq(Row(18), Row(24)))
   }
 }

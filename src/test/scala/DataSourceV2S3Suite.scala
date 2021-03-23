@@ -24,7 +24,7 @@ import org.apache.spark.sql.DataFrame
  */
 class DataSourceV2S3Suite extends DataSourceV2Suite {
 
-  override protected def df() : DataFrame = {    
+  override protected def df() : DataFrame = {
     spark.read
       .format("com.github.datasource")
       .schema(schema)

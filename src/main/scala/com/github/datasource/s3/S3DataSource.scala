@@ -26,7 +26,6 @@ import org.slf4j.LoggerFactory
 
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.connector.read._
-import org.apache.spark.sql.sources.Aggregation
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types._
 
@@ -57,7 +56,7 @@ class S3Scan(schema: StructType,
     var store: S3Store = S3StoreFactory.getS3Store(schema, options,
                                                    filters, prunedSchema,
                                                    pushedAggregation)
-    var numPartitions: Int = 
+    var numPartitions: Int =
       if (options.containsKey("partitions") &&
           options.get("partitions").toInt != 0) {
         options.get("partitions").toInt
@@ -83,14 +82,15 @@ class S3Scan(schema: StructType,
                                      rowOffset = i * partitionRows,
                                      numRows = rows,
                                      onlyPartition = (numPartitions == 1),
-                                     bucket = objectSummary.getBucketName(), 
+                                     bucket = objectSummary.getBucketName(),
                                      key = objectSummary.getKey()).asInstanceOf[InputPartition]
       partitionArray += nextPart
-      logger.info(nextPart.toString)
+      // logger.info(nextPart.toString)
     }
     partitionArray.toArray
   }
-  private def createS3Partitions(objectSummaries : Array[S3ObjectSummary]): Array[InputPartition] = {
+  private def createS3Partitions(objectSummaries : Array[S3ObjectSummary]):
+    Array[InputPartition] = {
     var a = new ArrayBuffer[InputPartition](0)
     var i = 0
     // In this case we generate one partition per file.
@@ -181,7 +181,7 @@ class S3PartitionReader(schema: StructType,
   /* We setup a rowIterator and then read/parse
    * each row as it is asked for.
    */
-  private var store: S3Store = S3StoreFactory.getS3Store(schema, options, 
+  private var store: S3Store = S3StoreFactory.getS3Store(schema, options,
                                                          filters, prunedSchema,
                                                          pushedAggregation)
   private var rowIterator: Iterator[InternalRow] = store.getRowIter(partition)
@@ -194,7 +194,7 @@ class S3PartitionReader(schema: StructType,
     val row = rowIterator.next
     if (((index % 500000) == 0) ||
         (!next)) {
-      logger.info(s"""get: partition: ${partition.index} ${partition.bucket} """ + 
+      logger.info(s"""get: partition: ${partition.index} ${partition.bucket} """ +
                   s"""${partition.key} index: ${index}""")
     }
     index = index + 1

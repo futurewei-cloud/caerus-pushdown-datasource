@@ -19,22 +19,23 @@ package com.github.datasource.parse
 
 import java.io.BufferedReader
 import java.io.BufferedWriter
-import java.io.FileWriter
 import java.io.File
+import java.io.FileWriter
 import java.io.IOException
-import java.util.Locale
 import java.util
+import java.util.Locale
 
 import scala.collection.JavaConverters._
 
-import org.slf4j.LoggerFactory
-import org.apache.spark.sql.catalyst.expressions.GenericInternalRow
-import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.Row
-import org.apache.spark.sql.sources._
-import org.apache.spark.sql.types._
 import com.github.datasource.common.TypeCast
 import com.univocity.parsers.csv._
+import org.slf4j.LoggerFactory
+
+import org.apache.spark.sql.Row
+import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.expressions.GenericInternalRow
+import org.apache.spark.sql.sources._
+import org.apache.spark.sql.types._
 
 class Delimiters(var fieldDelim: Char,
                  var lineDelim: Char = '\n',
@@ -127,14 +128,14 @@ class RowIterator(rowReader: BufferedReader,
       }
     }
     if (index >= schema.fields.length) {
-      //println(row.toString)
+      // println(row.toString)
       new GenericInternalRow(row)
     } else {
       /* If empty, we will simply discard the row since
        * the next partition will pick up this row.
        * This can be expected for some protocols, thus there is no tracing by default.
        */
-      //println(s"line too short ${index}/${schema.fields.length}: ${line}")
+      // println(s"line too short ${index}/${schema.fields.length}: ${line}")
       InternalRow.empty
     }
   }
@@ -165,7 +166,7 @@ class RowIterator(rowReader: BufferedReader,
     val firstRow = getNextRow()
     firstRow
   }
-  /** Returns row following the current one, 
+  /** Returns row following the current one,
    *  (if availble), by parsing the next line.
    *
    * @return the next InternalRow object or InternalRow.empty if none.
@@ -178,7 +179,7 @@ class RowIterator(rowReader: BufferedReader,
       InternalRow.empty
     } else {
       parseLine(line)
-      /*val row = parseLine(line)
+      /* val row = parseLine(line)
       if (RowIterator.getDebugWriter.isDefined && row.numFields > 0) {
         RowIterator.getDebugWriter.get.write(row.toString() + "\n")
         RowIterator.getDebugWriter.get.flush
@@ -186,7 +187,7 @@ class RowIterator(rowReader: BufferedReader,
         rows += 1
       }
       lastRow = row
-      row*/
+      row */
     }
   }
   /** Returns true if there are remaining rows.
@@ -212,8 +213,9 @@ object RowIterator {
   private var debugFile: String = ""
   private var totalRows: Long = 0
   private var debugWriter: Option[FileWriter] = None
-  
-  def setDebugFile(file:String): Unit = {
+  private val logger = LoggerFactory.getLogger(getClass)
+
+  def setDebugFile(file: String): Unit = {
     debugFile = file
     val outFile = new File(RowIterator.debugFile + ".txt")
     debugWriter = Some(new FileWriter(outFile))
@@ -227,7 +229,7 @@ object RowIterator {
    * @param line the String of line to parse
    * @return the InternalRow of this line..
    */
-  def parseLine(line: String, 
+  def parseLine(line: String,
                 schema: StructType,
                 fieldDelim: Char,
                 quoteDelim: Char = '\"'): Row = {
@@ -236,7 +238,7 @@ object RowIterator {
     if (fieldDelim != '|') {
       var value: String = ""
       var fieldStart = 0
-      //println("parseLine: " + line)
+      // println("parseLine: " + line)
       while (index < schema.fields.length && fieldStart < line.length) {
         if (line(fieldStart) != quoteDelim) {
           var fieldEnd = line.substring(fieldStart).indexOf(fieldDelim)
@@ -264,8 +266,9 @@ object RowIterator {
           row(index) = TypeCast.castTo(value, field.dataType, false,
                                       field.nullable)
         } catch {
-          case e: Throwable => println(s"Exception found parsing index: ${index} field: ${field.name} value: ${value}")
-                    println(s"line: ${line}")
+          case e: Throwable => logger.warn(s"Exception found parsing index: ${index}" +
+                                           s" field: ${field.name} value: ${value}")
+                    logger.warn(s"line: ${line}")
                     throw e
         }
         index += 1
@@ -283,12 +286,12 @@ object RowIterator {
      * This can be expected for some protocols, thus there is no tracing by default.
      */
     if (index < schema.fields.length) {
-      //println(s"line too short ${index}/${schema.fields.length}: ${line}")
-      //InternalRow.empty
+      // println(s"line too short ${index}/${schema.fields.length}: ${line}")
+      // InternalRow.empty
       Row.fromSeq(row.toSeq)
     } else {
       val ret = Row.fromSeq(row.toSeq)
-      //println(ret.toString)
+      // println(ret.toString)
       ret
     }
   }

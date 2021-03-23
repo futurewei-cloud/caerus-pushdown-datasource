@@ -17,6 +17,16 @@
 
 package com.github.datasource.test
 
+import java.io._
+import java.net.URI
+import java.nio.charset.StandardCharsets
+
+import org.apache.commons.io.IOUtils
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs.FileSystem
+import org.apache.hadoop.fs.FSDataOutputStream
+import org.apache.hadoop.fs.Path
+
 import org.apache.spark.sql.DataFrame
 
 /** Is a suite of testing which exercises the
@@ -24,11 +34,64 @@ import org.apache.spark.sql.DataFrame
  */
 class DataSourceV2HdfsSuite extends DataSourceV2Suite {
 
-  override protected def df() : DataFrame = {    
+  /** Initializes a data frame with the sample data and
+   *  then writes this dataframe out to hdfs.
+   */
+  def initDf(): Unit = {
+    val s = spark
+    import s.implicits._
+    val testDF = dataValues.toSeq.toDF("i", "j", "k")
+    testDF.select("*").repartition(1)
+      .write.mode("overwrite")
+      .option("delimiter", "|")
+      .format("csv")
+      // .option("header", "true")
+      .option("partitions", "1")
+      .save("hdfs://dikehdfs:9000/integer-test")
+  }
+  private val dataValues = Seq((0, 5, 1), (1, 10, 2), (2, 5, 1),
+                               (3, 10, 2), (4, 5, 1), (5, 10, 2), (6, 5, 1))
+  /** Formats the data with | (pipe) separated format.
+   */
+  def getData(): String = {
+    val sb = new StringBuilder()
+    for (r <- dataValues) {
+      r.productIterator.map(_.asInstanceOf[Int])
+       .foreach(i => sb.append(i + "|"))
+      sb.append("\n")
+    }
+    sb.substring(0)
+  }
+  /** Writes the sample data out to hdfs.
+   */
+  def initHdfs(): Unit = {
+    val conf = new Configuration();
+    val url = "hdfs://dikehdfs:9000"
+    conf.set("fs.defaultFS", url);
+
+    val fs = FileSystem.get(URI.create(url), conf);
+
+    val dataPath = new Path("/integer-test/ints.tbl");
+    val fsStrmData = fs.create(dataPath, true);
+    val bWriterData = new BufferedWriter(new OutputStreamWriter(fsStrmData,
+                                                                StandardCharsets.UTF_8));
+    bWriterData.write(getData);
+    bWriterData.close();
+    fs.close();
+  }
+  var initted: Boolean = false
+  /** Returns the dataframe for the sample data
+   *  read in through the ndp data source.
+   */
+  override protected def df() : DataFrame = {
+    if (!initted) {
+      initHdfs()
+      initted = true
+    }
     spark.read
       .format("com.github.datasource")
       .schema(schema)
-      .option("format", "csv")
-      .load("ndphdfs://dikehdfs/spark-test/ints.tbl")
+      .option("format", "tbl")
+      .load("ndphdfs://dikehdfs/integer-test/ints.tbl")
   }
 }

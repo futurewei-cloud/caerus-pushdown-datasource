@@ -53,22 +53,22 @@ object TypeCast {
       dateFormatter: SimpleDateFormat = null): Any = {
       if (datum != nullValue) {
       castType match {
-        //case _: ByteType => datum.toByte
-        //case _: ShortType => datum.toShort
+        // case _: ByteType => datum.toByte
+        // case _: ShortType => datum.toShort
         case _: IntegerType => datum.toInt
         case _: LongType => datum.toLong
-        //case _: FloatType => Try(datum.toFloat)
+        // case _: FloatType => Try(datum.toFloat)
         //  .getOrElse(NumberFormat.getInstance(Locale.getDefault).parse(datum).floatValue())
         case _: DoubleType => Try(datum.toDouble)
           .getOrElse(NumberFormat.getInstance(Locale.getDefault).parse(datum).doubleValue())
-        //case _: BooleanType => datum.toBoolean
-        //case _: DecimalType => new BigDecimal(datum.replaceAll(",", ""))
-        //case _: TimestampType if dateFormatter != null =>
+        // case _: BooleanType => datum.toBoolean
+        // case _: DecimalType => new BigDecimal(datum.replaceAll(",", ""))
+        // case _: TimestampType if dateFormatter != null =>
         //  new Timestamp(dateFormatter.parse(datum).getTime)
-        //case _: TimestampType => Timestamp.valueOf(datum)
-        //case _: DateType if dateFormatter != null =>
+        // case _: TimestampType => Timestamp.valueOf(datum)
+        // case _: DateType if dateFormatter != null =>
         //  new Date(dateFormatter.parse(datum).getTime)
-        //case _: DateType => Date.valueOf(datum)
+        // case _: DateType => Date.valueOf(datum)
         case _: StringType => if (castString) UTF8String.fromString(datum) else datum
         case _ => throw new RuntimeException(s"Unsupported type: ${castType.typeName}")
       }

@@ -32,11 +32,10 @@ import com.amazonaws.services.s3.model.SelectObjectContentEvent.RecordsEvent
 import com.amazonaws.services.s3.model.SelectObjectContentRequest
 import com.amazonaws.services.s3.model.SelectObjectContentResult
 import com.amazonaws.services.s3.model.SSECustomerKey
+import com.github.datasource.s3.S3Partition
 
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types._
-
-import com.github.datasource.s3.S3Partition
 /** Utility functions for dealing with forming
  *  S3Select opeations across S3.
  *

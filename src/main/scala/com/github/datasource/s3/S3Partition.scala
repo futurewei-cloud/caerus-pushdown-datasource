@@ -16,9 +16,10 @@
  */
 package com.github.datasource.s3
 
+import com.github.datasource.common.PushdownPartition
+
 import org.apache.spark.Partition
 import org.apache.spark.sql.connector.read.InputPartition
-import com.github.datasource.common.PushdownPartition
 
 /** Represents a partition on an S3 store.
  *

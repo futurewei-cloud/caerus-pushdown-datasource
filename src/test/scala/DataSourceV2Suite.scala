@@ -52,6 +52,7 @@ abstract class DataSourceV2Suite extends QueryTest with SharedSparkSession {
 
   override def beforeAll(): Unit = {
     super.beforeAll()
+    spark.sparkContext.setLogLevel("WARN")
 
     df.createOrReplaceTempView("integers")
   }
@@ -75,7 +76,6 @@ abstract class DataSourceV2Suite extends QueryTest with SharedSparkSession {
                 Seq(Row(5, 10, 2), Row(6, 5, 1)))
   }
   test("basic aggregate") {
-    // spark.sparkContext.setLogLevel("INFO")
     checkAnswer(df.filter("i > 4")
                   .agg(sum("i") * sum("j")),
                 Seq(Row(165)))

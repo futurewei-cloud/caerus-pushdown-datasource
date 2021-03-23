@@ -18,12 +18,13 @@
 package com.github.datasource.test
 
 import java.io._
+import java.net.URI
 import java.nio.charset.StandardCharsets
 
 import org.apache.commons.io.IOUtils
 import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.FSDataOutputStream
 import org.apache.hadoop.fs.FileSystem
+import org.apache.hadoop.fs.FSDataOutputStream
 import org.apache.hadoop.fs.Path
 
 import org.apache.spark.sql.DataFrame
@@ -33,18 +34,18 @@ import org.apache.spark.sql.DataFrame
  */
 class DataSourceV2HdfsSuite extends DataSourceV2Suite {
 
-  /** Initializes a data frame with the sample data and 
+  /** Initializes a data frame with the sample data and
    *  then writes this dataframe out to hdfs.
    */
   def initDf(): Unit = {
     val s = spark
-    import s.implicits._    
-    val testDF = dataValues.toSeq.toDF("i","j","k")
+    import s.implicits._
+    val testDF = dataValues.toSeq.toDF("i", "j", "k")
     testDF.select("*").repartition(1)
       .write.mode("overwrite")
       .option("delimiter", "|")
       .format("csv")
-      //.option("header", "true")
+      // .option("header", "true")
       .option("partitions", "1")
       .save("hdfs://dikehdfs:9000/integer-test")
   }
@@ -65,9 +66,11 @@ class DataSourceV2HdfsSuite extends DataSourceV2Suite {
    */
   def initHdfs(): Unit = {
     val conf = new Configuration();
-    conf.set("fs.defaultFS", "hdfs://dikehdfs:9000");
-    val fs = FileSystem.get(conf);
-        
+    val url = "hdfs://dikehdfs:9000"
+    conf.set("fs.defaultFS", url);
+
+    val fs = FileSystem.get(URI.create(url), conf);
+
     val dataPath = new Path("/integer-test/ints.tbl");
     val fsStrmData = fs.create(dataPath, true);
     val bWriterData = new BufferedWriter(new OutputStreamWriter(fsStrmData,

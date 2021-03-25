@@ -1,6 +1,6 @@
-This is a spark V2 data source for the S3 API.
+This is a spark V2 data source for S3 and HDFS.
 
-We based some of the code on minio's spark select.
+We based some of the S3 code on minio's spark select.
 https://github.com/minio/spark-select
 
 Build using sbt package.

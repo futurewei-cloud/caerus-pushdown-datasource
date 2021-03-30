@@ -44,7 +44,6 @@ class S3Scan(schema: StructType,
       extends Scan with Batch {
 
   private val logger = LoggerFactory.getLogger(getClass)
-  logger.trace("Created")
   override def readSchema(): StructType = prunedSchema
 
   override def toBatch: Batch = this
@@ -76,7 +75,9 @@ class S3Scan(schema: StructType,
         if (i == numPartitions - 1) {
           totalRows - (i * partitionRows)
         }
-        else partitionRows
+        else {
+          partitionRows
+        }
       }
       val nextPart = new S3Partition(index = i,
                                      rowOffset = i * partitionRows,
@@ -149,7 +150,6 @@ class S3PartitionReaderFactory(schema: StructType,
                                pushedAggregation: Aggregation)
   extends PartitionReaderFactory {
   private val logger = LoggerFactory.getLogger(getClass)
-  logger.trace("Created")
   override def createReader(partition: InputPartition): PartitionReader[InternalRow] = {
     new S3PartitionReader(schema, options, filters,
                           prunedSchema, partition.asInstanceOf[S3Partition],
@@ -175,8 +175,6 @@ class S3PartitionReader(schema: StructType,
   extends PartitionReader[InternalRow] {
 
   private val logger = LoggerFactory.getLogger(getClass)
-
-  logger.trace("Created")
 
   /* We setup a rowIterator and then read/parse
    * each row as it is asked for.

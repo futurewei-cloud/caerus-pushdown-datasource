@@ -17,7 +17,7 @@
 
 package com.github.datasource.test
 
-import java.io._
+import java.io.{BufferedWriter, OutputStreamWriter}
 import java.net.URI
 import java.nio.charset.StandardCharsets
 

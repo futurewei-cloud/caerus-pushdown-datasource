@@ -2,13 +2,10 @@ This is a new Spark V2 datasource, which has support for
 pushdown of filter, project and aggregate.
 This data source can operate against either HDFS or S3.
 
-In the case of S3, this data source is compatible with the
-S3 server included here:
-https://github.com/futurewei-cloud/caerus-dikeCS
-
-In the case of HDFS, this data source is compatible with the
-HDFS server with proxy configuration located here:
-https://github.com/futurewei-cloud/caerus-dikeHDFS
+The best way to get started with this datasource is to check out the demo detailed here:
+https://github.com/futurewei-cloud/caerus-dike/blob/master/README.md
+That repo can build and run dockers, which will fully demonstrate this datasource.
+That repo will bring up Spark with this datasource and with an S3 server, and an HDFS server.
 
 How to use
 =============
@@ -93,6 +90,16 @@ spark.read
 Supported formats
 =================
 Currently, only .tbl, a pipe (|) deliminated format is supported.  This is the format used by the TPCH benchmark.
+
+Datasource compatibilty
+========================
+In the case of S3, this data source is compatible with the
+S3 server included here:
+https://github.com/futurewei-cloud/caerus-dikeCS
+
+In the case of HDFS, this data source is compatible with the
+HDFS server with proxy configuration located here:
+https://github.com/futurewei-cloud/caerus-dikeHDFS
 
 Credits
 ========

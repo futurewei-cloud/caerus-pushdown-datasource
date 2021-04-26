@@ -40,6 +40,12 @@ import org.apache.spark.sql.types._
 object Pushdown {
 
   protected val logger = LoggerFactory.getLogger(getClass)
+
+  protected var supportsIsNull = true
+
+  def setSupportsIsNull(supports: Boolean): Unit = {
+    supportsIsNull = supports
+  }
   /**
    * Build a SQL WHERE clause for the given filters. If a filter cannot be pushed down then no
    * condition will be added to the WHERE clause. If none of the filters can be pushed down then
@@ -95,8 +101,24 @@ object Pushdown {
       case GreaterThan(attr, value) => buildComparison(attr, value, ">")
       case LessThanOrEqual(attr, value) => buildComparison(attr, value, "<=")
       case GreaterThanOrEqual(attr, value) => buildComparison(attr, value, ">=")
-      case IsNull(attr) => Option(s"${attr} IS NULL")
-      case IsNotNull(attr) => Option(s"${attr} IS NOT NULL")
+      // When support is not there, do not push down IS NULL.
+      // Allow the pushdown to continue without IS NULL,
+      // to help evaluate pushdown.  For production consider to reject
+      // the pushdown completely.
+      case IsNull(attr) => if (supportsIsNull) {
+          Option(s"${attr} IS NULL")
+        } else {
+          Option("TRUE")
+        }
+      // When support is not there, do not push down IS NULL.
+      // Allow the pushdown to continue without IS NULL,
+      // to help evaluate pushdown.  For production consider to reject
+      // the pushdown completely.
+      case IsNotNull(attr) => if (supportsIsNull) {
+          Option(s"${attr} IS NOT NULL")
+        } else {
+          Option("TRUE")
+        }
       case StringStartsWith(attr, value) => Option(s"${attr} LIKE '${value}%'")
       case StringEndsWith(attr, value) => Option(s"${attr} LIKE '%${value}'")
       case StringContains(attr, value) => Option(s"${attr} LIKE '%${value}%'")

@@ -43,7 +43,6 @@ class DefaultSource extends TableProvider
   with SessionConfigSupport with DataSourceRegister {
 
   private val logger = LoggerFactory.getLogger(getClass)
-  logger.trace("Pushdown Data Source Created")
   override def toString: String = s"PushdownDataSource()"
   override def supportsExternalMetadata(): Boolean = true
 
@@ -107,8 +106,15 @@ class PushdownScanBuilder(schema: StructType,
   var pushedFilter: Array[Filter] = new Array[Filter](0)
   private var prunedSchema: StructType = schema
   private var pushedAggregations = Aggregation(Seq.empty[AggregateFunc], Seq.empty[String])
-
-  logger.trace("Created")
+  private var supportsIsNull: Boolean = {
+    if (options.containsKey("DisableSupportsIsNull")) {
+      Pushdown.setSupportsIsNull(false)
+      logger.info("DisableSupportsIsNull set")
+      false
+    } else {
+      true
+    }
+  }
 
   /** Returns a scan object for this particular query.
    *   Currently we only support S3 and Hdfs.
@@ -184,7 +190,9 @@ class PushdownScanBuilder(schema: StructType,
   def aggregatePushdownValid(aggregation: Aggregation): Boolean = {
     val (compiledAgg, aggDataType) =
       Pushdown.compileAggregates(aggregation.aggregateExpressions)
-    (compiledAgg.isEmpty == false)
+    (compiledAgg.isEmpty == false &&
+    (!options.containsKey("DisableGroupbyPush") ||
+      aggregation.groupByExpressions.length == 0))
   }
   /** Will push down a list of aggregates to be saved and sent to
    *  the endpoint on all reads.
@@ -194,9 +202,12 @@ class PushdownScanBuilder(schema: StructType,
    */
   override def pushAggregation(aggregation: Aggregation): Unit = {
     if (pushdownSupported() &&
-        !options.containsKey("DisableAggregatePush") &&
-        aggregatePushdownValid(aggregation)) {
-      pushedAggregations = aggregation
+        !options.containsKey("DisableAggregatePush")) {
+      if (aggregatePushdownValid(aggregation)) {
+        pushedAggregations = aggregation
+      } else {
+        logger.info(s"Aggregate not pushed down: " + aggregation)
+      }
     }
   }
 

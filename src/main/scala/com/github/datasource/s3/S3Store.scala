@@ -211,8 +211,11 @@ abstract class S3Store(schema: StructType,
     do {
       result = s3Client.listObjectsV2(req)
       result.getObjectSummaries().asScala.foreach(objectSummary => {
-        objectSummaries += objectSummary
-        // logger.info("file is:" + objectSummary.getKey())
+        if (!objectSummary.getKey().contains(".crc") &&
+             (objectSummary.getKey().contains(".csv") ||
+              objectSummary.getKey().contains(".tbl") )) {
+          objectSummaries += objectSummary
+        }
       })
       req.setContinuationToken(result.getNextContinuationToken())
     } while (result.isTruncated())

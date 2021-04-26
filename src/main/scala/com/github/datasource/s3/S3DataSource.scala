@@ -60,8 +60,13 @@ class S3Scan(schema: StructType,
           options.get("partitions").toInt != 0) {
         options.get("partitions").toInt
       } else {
-        (objectSummary.getSize() / maxPartSize +
-        (if ((objectSummary.getSize() % maxPartSize) == 0) 0 else 1)).toInt
+        // We previously supported a number of partitions per file
+        // However, this is only supportable via use of the OFFSET
+        // phrase, which is not part of the AWS S3 standard.
+        // For now, assume a single partition per file.
+        // (objectSummary.getSize() / maxPartSize +
+        // (if ((objectSummary.getSize() % maxPartSize) == 0) 0 else 1)).toInt
+        1
       }
     if (numPartitions == 0) {
       throw new ArithmeticException("numPartitions is 0")

@@ -189,7 +189,7 @@ class PushdownScanBuilder(schema: StructType,
   }
   def aggregatePushdownValid(aggregation: Aggregation): Boolean = {
     val (compiledAgg, aggDataType) =
-      Pushdown.compileAggregates(aggregation.aggregateExpressions)
+      Pushdown.compileAggregates(aggregation.aggregateExpressions, schema)
     (compiledAgg.isEmpty == false &&
     (!options.containsKey("DisableGroupbyPush") ||
       aggregation.groupByExpressions.length == 0))

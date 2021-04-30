@@ -124,7 +124,7 @@ class HdfsStore(schema: StructType,
   protected val (readColumns: String,
                  readSchema: StructType) = {
     var (columns, updatedSchema) =
-      Pushdown.getColumnSchema(pushedAggregation, prunedSchema)
+      Pushdown.getColumnSchema(pushedAggregation, prunedSchema, schema)
     (columns,
      if (updatedSchema.names.isEmpty) schema else updatedSchema)
   }

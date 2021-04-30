@@ -123,8 +123,6 @@ abstract class S3Store(schema: StructType,
       override def refresh(): Unit = {}
     }
   }
-  logger.trace("S3Store Created")
-
   protected val s3Credential = new BasicAWSCredentials(params.get("accessKey"),
                                                        params.get("secretKey"))
   protected val s3Client = AmazonS3ClientBuilder.standard()
@@ -138,7 +136,7 @@ abstract class S3Store(schema: StructType,
   protected val (readColumns: String,
                  readSchema: StructType) = {
     var (columns, updatedSchema) =
-      Pushdown.getColumnSchema(pushedAggregation, prunedSchema)
+      Pushdown.getColumnSchema(pushedAggregation, prunedSchema, schema)
     (columns,
      if (updatedSchema.names.isEmpty) schema else updatedSchema)
   }
@@ -302,7 +300,7 @@ class S3StoreCSV(var schema: StructType,
     req.withMaxKeys(1000)
 
     val (columns, updatedSchema) =
-      Pushdown.getColumnSchema(pushedAggregation, prunedSchema)
+      Pushdown.getColumnSchema(pushedAggregation, prunedSchema, schema)
     val readSchema = if (updatedSchema.names.isEmpty) schema else updatedSchema
     val csvFormat = CSVFormat.DEFAULT
       .withHeader(readSchema.fields.map(x => x.name): _*)
@@ -362,7 +360,7 @@ class S3StoreJSON(schema: StructType,
   def getReader(partition: S3Partition): BufferedReader = {
     var params: Map[String, String] = Map("" -> "")
     val (columns, updatedSchema) =
-      Pushdown.getColumnSchema(pushedAggregation, prunedSchema)
+      Pushdown.getColumnSchema(pushedAggregation, prunedSchema, schema)
     val readSchema = if (updatedSchema.names.isEmpty) schema else updatedSchema
     val csvFormat = CSVFormat.DEFAULT
       .withHeader(readSchema.fields.map(x => x.name): _*)
@@ -402,7 +400,7 @@ class S3StoreJSON(schema: StructType,
     req.withMaxKeys(1000)
 
     val (columns, updatedSchema) =
-      Pushdown.getColumnSchema(pushedAggregation, prunedSchema)
+      Pushdown.getColumnSchema(pushedAggregation, prunedSchema, schema)
     do {
       result = s3Client.listObjectsV2(req)
       asScalaBuffer(result.getObjectSummaries()).foreach(objectSummary => {
@@ -458,7 +456,7 @@ class S3StoreParquet(schema: StructType,
   def getReader(partition: S3Partition): BufferedReader = {
     var params: Map[String, String] = Map("" -> "")
     val (columns, updatedSchema) =
-      Pushdown.getColumnSchema(pushedAggregation, prunedSchema)
+      Pushdown.getColumnSchema(pushedAggregation, prunedSchema, schema)
     val readSchema = if (updatedSchema.names.isEmpty) schema else updatedSchema
     val csvFormat = CSVFormat.DEFAULT
       .withHeader(readSchema.fields.map(x => x.name): _*)
@@ -498,7 +496,7 @@ class S3StoreParquet(schema: StructType,
     req.withMaxKeys(1000)
 
     val (columns, updatedSchema) =
-      Pushdown.getColumnSchema(pushedAggregation, prunedSchema)
+      Pushdown.getColumnSchema(pushedAggregation, prunedSchema, schema)
 
     do {
       result = s3Client.listObjectsV2(req)

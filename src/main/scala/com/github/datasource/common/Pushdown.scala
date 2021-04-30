@@ -59,7 +59,15 @@ object Pushdown {
     val filterExpressions = filters.flatMap(f => buildFilterExpression(schema, f)).mkString(" AND ")
     if (filterExpressions.isEmpty) "" else "WHERE " + filterExpressions
   }
-
+  /** returns the representation of the column name according to the
+   *  current option set.
+   *  @param schema - Schema of table
+   *  @param attr - Attribute name
+   *  @return String - representation of the column name.
+   */
+  def getColString(schema: StructType, attr: String): String = {
+    s"_${getSchemaIndex(schema, attr)}"
+  }
   /**
    * Attempt to convert the given filter into a Select expression. Returns None if the expression
    * could not be converted.
@@ -73,7 +81,7 @@ object Pushdown {
           case TimestampType => s""""${value.asInstanceOf[Timestamp]}""""
           case _ => value.toString
         }
-        s"s." + s""""$attr"""" + s" $comparisonOp $sqlEscapedValue"
+        s"s." + s""""${getColString(schema, attr)}"""" + s" $comparisonOp $sqlEscapedValue"
       }
     }
     def buildOr(leftFilter: Option[String], rightFilter: Option[String]): Option[String] = {
@@ -106,7 +114,7 @@ object Pushdown {
       // to help evaluate pushdown.  For production consider to reject
       // the pushdown completely.
       case IsNull(attr) => if (supportsIsNull) {
-          Option(s"${attr} IS NULL")
+          Option(s"${getColString(schema, attr)} IS NULL")
         } else {
           Option("TRUE")
         }
@@ -115,13 +123,16 @@ object Pushdown {
       // to help evaluate pushdown.  For production consider to reject
       // the pushdown completely.
       case IsNotNull(attr) => if (supportsIsNull) {
-          Option(s"${attr} IS NOT NULL")
+          Option(s"${getColString(schema, attr)} IS NOT NULL")
         } else {
           Option("TRUE")
         }
-      case StringStartsWith(attr, value) => Option(s"${attr} LIKE '${value}%'")
-      case StringEndsWith(attr, value) => Option(s"${attr} LIKE '%${value}'")
-      case StringContains(attr, value) => Option(s"${attr} LIKE '%${value}%'")
+      case StringStartsWith(attr, value) =>
+        Option(s"${getColString(schema, attr)} LIKE '${value}%'")
+      case StringEndsWith(attr, value) =>
+        Option(s"${getColString(schema, attr)} LIKE '%${value}'")
+      case StringContains(attr, value) =>
+        Option(s"${getColString(schema, attr)} LIKE '%${value}%'")
       case other@_ => logger.info("unknown filter:" + other) ; None
     }
   }
@@ -137,28 +148,36 @@ object Pushdown {
       None
     }
   }
-  def quoteIdentifier(colName: String): String = {
-    s""""$colName""""
+  def quoteIdentifier(colName: String,
+                      schema: StructType): String = {
+    s"${getColString(schema, colName)}"
   }
   /**
    * `columns`, but as a String suitable for injection into a SQL query.
    */
   def getColumnSchema(aggregation: Aggregation,
-                      schema: StructType):
+                      prunedSchema: StructType, schema: StructType):
                      (String, StructType) = {
 
-    val (compiledAgg, aggDataType) = compileAggregates(aggregation.aggregateExpressions)
+    val (compiledAgg, aggDataType) = compileAggregates(aggregation.aggregateExpressions,
+                                                       schema)
     val sb = new StringBuilder()
-    val columnNames = schema.map(_.name).toArray
+    val columnNames = prunedSchema.map(_.name).toArray
     var updatedSchema: StructType = new StructType()
     if (compiledAgg.length == 0) {
-      updatedSchema = schema
-      columnNames.foreach(x => sb.append(",").append(x))
+      val cols = prunedSchema.fields.map(x => {
+            getColString(schema, x.name)
+        }).toArray
+      updatedSchema = prunedSchema
+      cols.foreach(x => sb.append(",").append(x))
     } else {
-      updatedSchema = getAggregateColumnsList(sb, aggregation, schema, compiledAgg, aggDataType)
+      updatedSchema = getAggregateColumnsList(sb,
+                                              aggregation,
+                                              prunedSchema, compiledAgg, aggDataType,
+                                              schema)
     }
     (if (sb.length == 0) "" else sb.substring(1),
-     if (sb.length == 0) schema else updatedSchema)
+     if (sb.length == 0) prunedSchema else updatedSchema)
   }
   private def containsArithmeticOp(col: String): Boolean =
     col.contains("+") || col.contains("-") || col.contains("*") || col.contains("/")
@@ -168,8 +187,9 @@ object Pushdown {
    * @param aggregates the array of aggregates to translate
    * @return array of strings
    */
-  def compileAggregates(aggregates: Seq[AggregateFunc]): (Array[String], Array[DataType]) = {
-    def quote(colName: String): String = quoteIdentifier(colName)
+  def compileAggregates(aggregates: Seq[AggregateFunc],
+                        schema: StructType): (Array[String], Array[DataType]) = {
+    def quote(colName: String): String = quoteIdentifier(colName, schema)
     val aggBuilder = ArrayBuilder.make[String]
     val dataTypeBuilder = ArrayBuilder.make[DataType]
     aggregates.map {
@@ -178,14 +198,14 @@ object Pushdown {
         if (!containsArithmeticOp(column)) {
           aggBuilder += s"MIN(${quote(column)})"
         } else {
-          aggBuilder += s"MIN(${quoteEachCols(column)})"
+          aggBuilder += s"MIN(${quoteEachCols(column, schema)})"
         }
       case Max(column, dataType) =>
         dataTypeBuilder += dataType
         if (!containsArithmeticOp(column)) {
           aggBuilder += s"MAX(${quote(column)})"
         } else {
-          aggBuilder += s"MAX(${quoteEachCols(column)})"
+          aggBuilder += s"MAX(${quoteEachCols(column, schema)})"
         }
       case Sum(column, dataType, isDistinct) =>
         val distinct = if (isDistinct) "DISTINCT " else ""
@@ -193,7 +213,7 @@ object Pushdown {
         if (!containsArithmeticOp(column)) {
           aggBuilder += s"SUM(${distinct} ${quote(column)})"
         } else {
-          aggBuilder += s"SUM(${distinct}${quoteEachCols(column)})"
+          aggBuilder += s"SUM(${distinct}${quoteEachCols(column, schema)})"
         }
       case Avg(column, dataType, isDistinct) =>
         val distinct = if (isDistinct) "DISTINCT " else ""
@@ -201,7 +221,7 @@ object Pushdown {
         if (!containsArithmeticOp(column)) {
           aggBuilder += s"AVG(${distinct} ${quote(column)})"
         } else {
-          aggBuilder += s"AVG(${distinct}${quoteEachCols(column)})"
+          aggBuilder += s"AVG(${distinct}${quoteEachCols(column, schema)})"
         }
       case Count(column, dataType, isDistinct) =>
         val distinct = if (isDistinct) "DISTINCT " else ""
@@ -209,15 +229,15 @@ object Pushdown {
         if (!containsArithmeticOp(column)) {
           aggBuilder += s"COUNT(${distinct}${quote(column)})"
         } else {
-          aggBuilder += s"COUNT(${distinct}${quoteEachCols(column)})"
+          aggBuilder += s"COUNT(${distinct}${quoteEachCols(column, schema)})"
         }
       case _ =>
     }
     (aggBuilder.result, dataTypeBuilder.result)
   }
 
-  private def quoteEachCols (column: String): String = {
-    def quote(colName: String): String = quoteIdentifier(colName)
+  private def quoteEachCols (column: String, schema: StructType): String = {
+    def quote(colName: String): String = quoteIdentifier(colName, schema)
     val colsBuilder = ArrayBuilder.make[String]
     val st = new StringTokenizer(column, "+-*/", true)
     colsBuilder += quote(st.nextToken().trim)
@@ -228,13 +248,14 @@ object Pushdown {
     colsBuilder.result.mkString(" ")
   }
   private def getAggregateColumnsList(sb: StringBuilder,
-                                      aggregation: Aggregation, schema: StructType,
+                                      aggregation: Aggregation, prunedSchema: StructType,
                                       compiledAgg: Array[String],
-                                      aggDataType: Array[DataType]) = {
-    val columnNames = schema.map(_.name).toArray
+                                      aggDataType: Array[DataType],
+                                      schema: StructType) = {
+    val columnNames = prunedSchema.map(_.name).toArray
     val quotedColumns: Array[String] =
-      columnNames.map(colName => quoteIdentifier(colName.toLowerCase(Locale.ROOT)))
-    val colDataTypeMap: Map[String, StructField] = quotedColumns.zip(schema.fields).toMap
+      columnNames.map(colName => quoteIdentifier(colName.toLowerCase(Locale.ROOT), schema))
+    val colDataTypeMap: Map[String, StructField] = quotedColumns.zip(prunedSchema.fields).toMap
     val newColsBuilder = ArrayBuilder.make[String]
     var updatedSchema: StructType = new StructType()
 
@@ -243,7 +264,7 @@ object Pushdown {
       updatedSchema = updatedSchema.add(col, dataType)
     }
     for (groupBy <- aggregation.groupByExpressions) {
-      val quotedGroupBy = quoteIdentifier(groupBy)
+      val quotedGroupBy = quoteIdentifier(groupBy, schema)
       newColsBuilder += quotedGroupBy
       updatedSchema = updatedSchema.add(colDataTypeMap.get(quotedGroupBy).get)
     }
@@ -273,6 +294,22 @@ object Pushdown {
     } else {
       ""
     }
+  }
+
+  /** returns the index of a field matching an input name in a schema.
+   *
+   * @param schema the schema to scan
+   * @param name the name of the field to search for in schema
+   *
+   * @return Integer - The index of this field in the input schema.
+   */
+  def getSchemaIndex(schema: StructType, name: String): Integer = {
+    for (i <- 0 to schema.fields.size) {
+      if (schema.fields(i).name == name) {
+        return i + 1
+      }
+    }
+    -1
   }
 
   /** Returns a string to represent the input query.

@@ -62,7 +62,9 @@ object Select {
   private def headerInfo(params: Map[String, String]): FileHeaderInfo = {
     params.getOrElse("header", "true") match {
       case "false" => FileHeaderInfo.NONE
-      case "true" => FileHeaderInfo.USE
+      // We are always using the column numbers, and will
+      // always skip/ignore the header.
+      case "true" => FileHeaderInfo.IGNORE
     }
   }
 

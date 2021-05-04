@@ -75,27 +75,18 @@ object S3StoreFactory{
    *  the input format from params("format").
    *  Currently only csv, json, parquet are supported.
    *
-   * @param schema the StructType schema to construct store with.
+   * @param pushdown object handling filter, project and aggregate pushdown
    * @param params the parameters including those to construct the store
-   * @param filters the filters to pass down to the store.
-   * @param prunedSchema the schema to pushdown (column pruning)
-   * @param pushedAggregation the aggregate operations to pushdown
    * @return a new HdfsStore object constructed with above parameters.
    */
-  def getS3Store(schema: StructType,
-                 params: java.util.Map[String, String],
-                 filters: Array[Filter],
-                 prunedSchema: StructType,
-                 pushedAggregation: Aggregation): S3Store = {
+  def getS3Store(pushdown: Pushdown,
+                 params: java.util.Map[String, String]): S3Store = {
 
     var format = params.get("format")
     format.toLowerCase(Locale.ROOT) match {
-      case "csv" => new S3StoreCSV(schema, params, filters, prunedSchema,
-                                   pushedAggregation)
-      case "json" => new S3StoreJSON(schema, params, filters, prunedSchema,
-                                     pushedAggregation)
-      case "parquet" => new S3StoreParquet(schema, params, filters, prunedSchema,
-                                           pushedAggregation)
+      case "csv" => new S3StoreCSV(pushdown, params)
+      case "json" => new S3StoreJSON(pushdown, params)
+      case "parquet" => new S3StoreParquet(pushdown, params)
     }
   }
 }
@@ -103,17 +94,11 @@ object S3StoreFactory{
  *  to an hdfs endpoint, specified by params("endpoint")
  *  Other parameters are parmas("path")
  *
- * @param schema the StructType schema to construct store with.
+ * @param pushdown object handling filter, project and aggregate pushdown
  * @param params the parameters including those to construct the store
- * @param filters the filters to pass down to the store.
- * @param prunedSchema the schema to pushdown (column pruning)
- * @param pushedAggregation the aggregate operations to pushdown
  */
-abstract class S3Store(schema: StructType,
-                       params: java.util.Map[String, String],
-                       filters: Array[Filter],
-                       prunedSchema: StructType,
-                       pushedAggregation: Aggregation) {
+abstract class S3Store(pushdown: Pushdown,
+                       params: java.util.Map[String, String]) {
 
   protected var path = params.get("path")
   protected val logger = LoggerFactory.getLogger(getClass)
@@ -133,15 +118,7 @@ abstract class S3Store(schema: StructType,
     .withClientConfiguration(new ClientConfiguration().withRequestTimeout(24 * 3600 * 1000)
                                                       .withSocketTimeout(24 * 3600* 1000))
     .build()
-  protected val (readColumns: String,
-                 readSchema: StructType) = {
-    var (columns, updatedSchema) =
-      Pushdown.getColumnSchema(pushedAggregation, prunedSchema, schema)
-    (columns,
-     if (updatedSchema.names.isEmpty) schema else updatedSchema)
-  }
 
-  def getRows(partition: S3Partition): ArrayBuffer[InternalRow];
   def getReader(partition: S3Partition): BufferedReader;
   def getRowIter(partition: S3Partition): Iterator[InternalRow];
 
@@ -151,7 +128,7 @@ abstract class S3Store(schema: StructType,
     var s3URI = S3URI.toAmazonS3URI(path)
     var params: Map[String, String] = Map("" -> "")
     val csvFormat = CSVFormat.DEFAULT
-      .withHeader(schema.fields.map(x => x.name): _*)
+      .withHeader(pushdown.schema.fields.map(x => x.name): _*)
       .withRecordSeparator("\n")
       .withDelimiter(params.getOrElse("delimiter", ",").charAt(0))
       .withQuote(params.getOrElse("quote", "\"").charAt(0))
@@ -171,7 +148,7 @@ abstract class S3Store(schema: StructType,
             objectSummary.getBucketName(),
             objectSummary.getKey(),
             params,
-            schema)
+            pushdown.schema)
         ).getPayload().getRecordsInputStream()
         val countStr: String = IOUtils.toString(in, StandardCharsets.UTF_8);
         rows = countStr.filter(_ >= ' ').toInt
@@ -193,7 +170,7 @@ abstract class S3Store(schema: StructType,
     var s3URI = S3URI.toAmazonS3URI(path)
     var params: Map[String, String] = Map("" -> "")
     val csvFormat = CSVFormat.DEFAULT
-      .withHeader(schema.fields.map(x => x.name): _*)
+      .withHeader(pushdown.schema.fields.map(x => x.name): _*)
       .withRecordSeparator("\n")
       .withDelimiter(params.getOrElse("delimiter", ",").charAt(0))
       .withQuote(params.getOrElse("quote", "\"").charAt(0))
@@ -223,21 +200,14 @@ abstract class S3Store(schema: StructType,
 /** A S3 protocol store, which can be used to read a partition with
  * any of various pushdowns.
  *
- * @param schema to apply to this store
+ * @param pushdown object that implements details of pushdown
  * @param params the parameters such as endpoint, etc.
- * @param filters the filters to pushdown to endpoint
- * @param prunedSchema
- * @param pushedAggregation
  */
-class S3StoreCSV(var schema: StructType,
-                 params: java.util.Map[String, String],
-                 filters: Array[Filter],
-                 var prunedSchema: StructType,
-                 pushedAggregation: Aggregation)
-                 extends S3Store(schema, params, filters, prunedSchema,
-                                 pushedAggregation) {
+class S3StoreCSV(pushdown: Pushdown,
+                 params: java.util.Map[String, String])
+                 extends S3Store(pushdown, params) {
 
-  override def toString() : String = "S3StoreCSV" + params + filters.mkString(", ")
+  override def toString() : String = "S3StoreCSV" + params + pushdown.filters.mkString(", ")
   def drainInputStream(in: SelectRecordsInputStream): Unit = {
     var buf : Array[Byte] = new Array[Byte](9192);
       var n = 0;
@@ -262,15 +232,7 @@ class S3StoreCSV(var schema: StructType,
     var params: Map[String, String] = Map("" -> "")
     new BufferedReader(new InputStreamReader(
       s3Client.selectObjectContent(
-            Select.requestCSV(partition.bucket,
-                              partition.key,
-                              params,
-                              schema,
-                              readSchema,
-                              readColumns,
-                              filters,
-                              pushedAggregation,
-                              partition)
+            Select.requestCSV(pushdown, partition)
       ).getPayload().getRecordsInputStream(new SelectObjectContentEventVisitor() {
         override def visit(event: SelectObjectContentEvent.RecordsEvent) {
           var data = event.getPayload().array()
@@ -285,85 +247,27 @@ class S3StoreCSV(var schema: StructType,
    */
   def getRowIter(partition: S3Partition): Iterator[InternalRow] = {
     RowIteratorFactory.getIterator(getReader(partition),
-                                   readSchema,
+                                   pushdown.readSchema,
                                    params.get("format"))
   }
-  override def getRows(partition: S3Partition): ArrayBuffer[InternalRow] = {
-    val numRows = getNumRows()
-    var records = new ArrayBuffer[InternalRow](numRows)
-    var req = new ListObjectsV2Request()
-    var result = new ListObjectsV2Result()
-    var params: Map[String, String] = Map("" -> "")
-
-    req.withBucketName(partition.bucket)
-    req.withPrefix(partition.key)
-    req.withMaxKeys(1000)
-
-    val (columns, updatedSchema) =
-      Pushdown.getColumnSchema(pushedAggregation, prunedSchema, schema)
-    val readSchema = if (updatedSchema.names.isEmpty) schema else updatedSchema
-    val csvFormat = CSVFormat.DEFAULT
-      .withHeader(readSchema.fields.map(x => x.name): _*)
-      .withRecordSeparator("\n")
-      .withDelimiter(params.getOrElse("delimiter", ",").charAt(0))
-      .withQuote(params.getOrElse("quote", "\"").charAt(0))
-      .withEscape(params.getOrElse(s"escape", "\\").charAt(0))
-      .withCommentMarker(params.getOrElse(s"comment", "#").charAt(0))
-    val in = s3Client.selectObjectContent(
-      Select.requestCSV(partition.bucket,
-                        partition.key,
-                        params,
-                        schema,
-                        readSchema,
-                        columns,
-                        filters,
-                        pushedAggregation,
-                        partition)
-      ).getPayload().getRecordsInputStream()
-    var parser = CSVParser.parse(in, java.nio.charset.Charset.forName("UTF-8"), csvFormat)
-    var index: Int = 0
-    try {
-      for (record <- parser.asScala) {
-        records += InternalRow.fromSeq(readSchema.fields.map(x => {
-          TypeCast.castTo(record.get(x.name), x.dataType, x.nullable)
-        }))
-        if ((index % 500000) == 0) {
-          logger.info("partition: " + partition.index + " index: " + index)
-        }
-        index += 1
-      }
-    } catch {
-      case NonFatal(e) => logger.error(s"Exception while parsing ", e)
-    }
-    logger.info("getRows() partition: " + partition.index + " total rows:" + index)
-    parser.close()
-    // logger.info(records.mkString(", "))
-    records
-  }
-  logger.trace("S3StoreCSV: schema " + schema)
+  logger.trace("S3StoreCSV: schema " + pushdown.schema)
   logger.trace("S3StoreCSV: path " + params.get("path"))
   logger.trace("S3StoreCSV: endpoint " + params.get("endpoint"))
   logger.trace("S3StoreCSV: accessKey/secretKey " +
               params.get("accessKey") + "/" + params.get("secretKey"))
-  logger.trace("S3StoreCSV: filters: " + filters.mkString(", "))
+  logger.trace("S3StoreCSV: filters: " + pushdown.filters.mkString(", "))
 }
 
-class S3StoreJSON(schema: StructType,
-                  params: java.util.Map[String, String],
-                  filters: Array[Filter],
-                  prunedSchema: StructType,
-                  pushedAggregation: Aggregation)
-  extends S3Store(schema, params, filters, prunedSchema, pushedAggregation) {
+class S3StoreJSON(pushdown: Pushdown,
+                  params: java.util.Map[String, String])
+  extends S3Store(pushdown, params) {
 
-  override def toString() : String = "S3StoreJSON" + params + filters.mkString(", ")
+  override def toString() : String = "S3StoreJSON" + params + pushdown.filters.mkString(", ")
 
   def getReader(partition: S3Partition): BufferedReader = {
     var params: Map[String, String] = Map("" -> "")
-    val (columns, updatedSchema) =
-      Pushdown.getColumnSchema(pushedAggregation, prunedSchema, schema)
-    val readSchema = if (updatedSchema.names.isEmpty) schema else updatedSchema
     val csvFormat = CSVFormat.DEFAULT
-      .withHeader(readSchema.fields.map(x => x.name): _*)
+      .withHeader(pushdown.readSchema.fields.map(x => x.name): _*)
       .withRecordSeparator("\n")
       .withDelimiter(params.getOrElse("delimiter", ",").charAt(0))
       .withQuote(params.getOrElse("quote", "\"").charAt(0))
@@ -371,95 +275,33 @@ class S3StoreJSON(schema: StructType,
       .withCommentMarker(params.getOrElse(s"comment", "#").charAt(0))
     new BufferedReader(new InputStreamReader(
       s3Client.selectObjectContent(
-            Select.requestJSON(partition.bucket,
-                              partition.key,
-                              params,
-                              schema,
-                              readSchema,
-                              columns,
-                              filters,
-                              pushedAggregation,
-                              partition)
+            Select.requestJSON(pushdown, partition)
       ).getPayload().getRecordsInputStream()))
   }
   // TBD for JSON, stubbed out for now.
   def getRowIter(partition: S3Partition): Iterator[InternalRow] = {
     RowIteratorFactory.getIterator(getReader(partition),
-                                   readSchema,
+                                   pushdown.readSchema,
                                    params.get("format"))
   }
-  override def getRows(partition: S3Partition): ArrayBuffer[InternalRow] = {
-    var records = new ArrayBuffer[InternalRow]
-    var req = new ListObjectsV2Request()
-    var result = new ListObjectsV2Result()
-    var s3URI = S3URI.toAmazonS3URI(path)
-    var params: Map[String, String] = Map("" -> "")
-
-    req.withBucketName(s3URI.getBucket())
-    req.withPrefix(s3URI.getKey().stripSuffix("*"))
-    req.withMaxKeys(1000)
-
-    val (columns, updatedSchema) =
-      Pushdown.getColumnSchema(pushedAggregation, prunedSchema, schema)
-    do {
-      result = s3Client.listObjectsV2(req)
-      asScalaBuffer(result.getObjectSummaries()).foreach(objectSummary => {
-        val br = new BufferedReader(new InputStreamReader(
-          s3Client.selectObjectContent(
-            Select.requestJSON(
-              objectSummary.getBucketName(),
-              objectSummary.getKey(),
-              params,
-              schema,
-              prunedSchema,
-              columns,
-              filters,
-              pushedAggregation,
-              partition)
-          ).getPayload().getRecordsInputStream()))
-        var line : String = null
-        while ( {line = br.readLine(); line != null}) {
-          var row = new Array[Any](schema.fields.length)
-          var rowValues = line.split(",")
-          var index = 0
-          while (index < rowValues.length) {
-            val field = schema.fields(index)
-            row(index) = TypeCast.castTo(rowValues(index), field.dataType,
-              field.nullable)
-            index += 1
-          }
-          records += InternalRow.fromSeq(row)
-        }
-        br.close()
-      })
-      req.setContinuationToken(result.getNextContinuationToken())
-    } while (result.isTruncated())
-    records
-  }
-  logger.trace("S3StoreJSON: schema " + schema)
+  logger.trace("S3StoreJSON: schema " + pushdown.schema)
   logger.trace("S3StoreJSON: path " + params.get("path"))
   logger.trace("S3StoreJSON: endpoint " + params.get("endpoint"))
   logger.trace("S3StoreJSON: accessKey/secretKey " +
                params.get("accessKey") + "/" + params.get("secretKey"))
-  logger.trace("S3StoreJSON: filters: " + filters.mkString(", "))
+  logger.trace("S3StoreJSON: filters: " + pushdown.filters.mkString(", "))
 }
 
-class S3StoreParquet(schema: StructType,
-                     params: java.util.Map[String, String],
-                     filters: Array[Filter],
-                     prunedSchema: StructType,
-                     pushedAggregation: Aggregation)
-  extends S3Store(schema, params, filters, prunedSchema, pushedAggregation) {
+class S3StoreParquet(pushdown: Pushdown,
+                     params: java.util.Map[String, String])
+  extends S3Store(pushdown, params) {
 
-  override def toString() : String = "S3StoreParquet" + params + filters.mkString(", ")
+  override def toString() : String = "S3StoreParquet" + params + pushdown.filters.mkString(", ")
 
   def getReader(partition: S3Partition): BufferedReader = {
     var params: Map[String, String] = Map("" -> "")
-    val (columns, updatedSchema) =
-      Pushdown.getColumnSchema(pushedAggregation, prunedSchema, schema)
-    val readSchema = if (updatedSchema.names.isEmpty) schema else updatedSchema
     val csvFormat = CSVFormat.DEFAULT
-      .withHeader(readSchema.fields.map(x => x.name): _*)
+      .withHeader(pushdown.readSchema.fields.map(x => x.name): _*)
       .withRecordSeparator("\n")
       .withDelimiter(params.getOrElse("delimiter", ",").charAt(0))
       .withQuote(params.getOrElse("quote", "\"").charAt(0))
@@ -467,78 +309,20 @@ class S3StoreParquet(schema: StructType,
       .withCommentMarker(params.getOrElse(s"comment", "#").charAt(0))
     new BufferedReader(new InputStreamReader(
       s3Client.selectObjectContent(
-            Select.requestParquet(partition.bucket,
-                              partition.key,
-                              params,
-                              schema,
-                              readSchema,
-                              columns,
-                              filters,
-                              pushedAggregation,
-                              partition)
+            Select.requestParquet(pushdown, partition)
       ).getPayload().getRecordsInputStream()))
   }
-  // TBD for parquet, stubbed out for now.
   def getRowIter(partition: S3Partition): Iterator[InternalRow] = {
     RowIteratorFactory.getIterator(getReader(partition),
-                                   readSchema,
+                                   pushdown.readSchema,
                                    params.get("format"))
   }
-  override def getRows(partition: S3Partition): ArrayBuffer[InternalRow] = {
-    var records = new ArrayBuffer[InternalRow]
-    var req = new ListObjectsV2Request()
-    var result = new ListObjectsV2Result()
-    var s3URI = S3URI.toAmazonS3URI(path)
-    var params: Map[String, String] = Map("" -> "")
-
-    req.withBucketName(s3URI.getBucket())
-    req.withPrefix(s3URI.getKey().stripSuffix("*"))
-    req.withMaxKeys(1000)
-
-    val (columns, updatedSchema) =
-      Pushdown.getColumnSchema(pushedAggregation, prunedSchema, schema)
-
-    do {
-      result = s3Client.listObjectsV2(req)
-      asScalaBuffer(result.getObjectSummaries()).foreach(objectSummary => {
-        val br = new BufferedReader(new InputStreamReader(
-          s3Client.selectObjectContent(
-            Select.requestParquet(
-              objectSummary.getBucketName(),
-              objectSummary.getKey(),
-              params,
-              schema,
-              prunedSchema,
-              columns,
-              filters,
-              pushedAggregation,
-              partition)
-          ).getPayload().getRecordsInputStream()))
-        var line : String = null
-        while ( {line = br.readLine(); line != null}) {
-          var row = new Array[Any](schema.fields.length)
-          var rowValues = line.split(",")
-          var index = 0
-          while (index < rowValues.length) {
-            val field = schema.fields(index)
-            row(index) = TypeCast.castTo(rowValues(index), field.dataType,
-              field.nullable)
-            index += 1
-          }
-          records += InternalRow.fromSeq(row)
-        }
-        br.close()
-      })
-      req.setContinuationToken(result.getNextContinuationToken())
-    } while (result.isTruncated())
-    records
-  }
-  logger.trace("S3StoreParquet: schema " + schema)
+  logger.trace("S3StoreParquet: schema " + pushdown.schema)
   logger.trace("S3StoreParquet: path " + params.get("path"))
   logger.trace("S3StoreParquet: endpoint " + params.get("endpoint"))
   logger.trace("S3StoreParquet: accessKey/secretKey " +
               params.get("accessKey") + "/" + params.get("secretKey"))
-  logger.trace("S3StoreParquet: filters: " + filters.mkString(", "))
+  logger.trace("S3StoreParquet: filters: " + pushdown.filters.mkString(", "))
 }
 
 
